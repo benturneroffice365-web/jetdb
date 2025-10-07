@@ -6,15 +6,11 @@
 
 
 
-\[!\[License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-\[!\[Python](https://img.shields.io/badge/Python-3.11+-blue.svg)](https://www.python.org/downloads/)
-
-\[!\[FastAPI](https://img.shields.io/badge/FastAPI-0.104+-00a393.svg)](https://fastapi.tiangolo.com/)
-
-\[!\[React](https://img.shields.io/badge/React-18+-61dafb.svg)](https://reactjs.org/)
-
-\[!\[TypeScript](https://img.shields.io/badge/TypeScript-5+-3178c6.svg)](https://www.typescriptlang.org/)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Python](https://img.shields.io/badge/Python-3.11+-blue.svg)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-00a393.svg)
+![React](https://img.shields.io/badge/React-18+-61dafb.svg)
+![TypeScript](https://img.shields.io/badge/TypeScript-5+-3178c6.svg)
 
 
 
