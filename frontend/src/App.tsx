@@ -4,7 +4,6 @@ import { createClient, Session } from '@supabase/supabase-js';
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import Papa from "papaparse";
-import $ from "jquery";
 import "jquery-mousewheel";
 import luckysheet from "luckysheet";
 import "luckysheet/dist/plugins/css/pluginsCss.css";
@@ -91,7 +90,7 @@ const App: React.FC = () => {
   // Mobile warning
   useEffect(() => {
     if (window.innerWidth < 768) {
-      toast("⚠️ JetDB works best on desktop", { duration: 8000 });
+      toast("âš ï¸ JetDB works best on desktop", { duration: 8000 });
     }
   }, []);
 
@@ -288,9 +287,9 @@ const App: React.FC = () => {
       setSpreadsheetInitialized(true);
       
       if (data.total_rows > SPREADSHEET_PAGE_SIZE) {
-        toast(`Showing first ${SPREADSHEET_PAGE_SIZE:,} of ${data.total_rows:,} rows`, {
+        toast(`Showing first ${SPREADSHEET_PAGE_SIZE.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`, {
           duration: 5000,
-          icon: "ℹ️",
+          icon: "â„¹ï¸",
         });
       }
     } catch (error: any) {
@@ -450,7 +449,7 @@ const App: React.FC = () => {
 
       toast.success(
         <div>
-          <div>✨ {data.rows} rows in {data.query_time_seconds}s</div>
+          <div>âœ¨ {data.rows} rows in {data.query_time_seconds}s</div>
           <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
             SQL: {data.generated_sql}
           </div>
@@ -508,9 +507,9 @@ const App: React.FC = () => {
         <Toaster position="top-right" />
         <div className="auth-box">
           <div className="auth-header">
-            <h1>⚡ JetDB</h1>
-            <p>Excel for Massive Datasets</p>
-            <div className="version-badge">v{VERSION} • Powered by GPT-4o-mini</div>
+            <h1>JetDB</h1>
+            <p>BIG DATA FOR THE REST OF US</p>
+            <div className="version-badge">v{VERSION} powered by GPT-4o-mini</div>
           </div>
 
           <form onSubmit={handleAuth} className="auth-form">
@@ -544,9 +543,9 @@ const App: React.FC = () => {
           </div>
 
           <div className="auth-features">
-            <div className="feature-item">📊 Upload massive CSVs (up to 10GB)</div>
-            <div className="feature-item">⚡ Query millions of rows instantly</div>
-            <div className="feature-item">🤖 Ask questions in plain English</div>
+            <div className="feature-item">Upload massive CSVs (up to 10GB)</div>
+            <div className="feature-item">Query millions of rows instantly</div>
+            <div className="feature-item">Ask questions of your data in plain English</div>
           </div>
         </div>
       </div>
@@ -561,7 +560,7 @@ const App: React.FC = () => {
       {/* Header */}
       <header className="header">
         <div className="header-left">
-          <h1 className="logo">⚡ JetDB</h1>
+          <h1 className="logo">âš¡ JetDB</h1>
           <span className="version">v{VERSION}</span>
           {currentDataset && (
             <span className="current-file">
@@ -577,15 +576,15 @@ const App: React.FC = () => {
         
         <div className="header-right">
           <button onClick={() => setShowDatasetPicker(true)} className="btn-secondary">
-            📁 Datasets ({datasets.length})
+            ðŸ“ Datasets ({datasets.length})
           </button>
           {selectedDataset && (
             <>
               <button onClick={() => setShowSQLModal(true)} className="btn-secondary" title="Ctrl+K">
-                💻 SQL
+                ðŸ’» SQL
               </button>
               <button onClick={() => setShowAIModal(true)} className="btn-primary" title="Ctrl+J">
-                🤖 AI Chat
+                ðŸ¤– AI Chat
               </button>
             </>
           )}
@@ -618,13 +617,13 @@ const App: React.FC = () => {
               </div>
             ) : (
               <>
-                <div className="dropzone-icon">📊</div>
+                <div className="dropzone-icon">ðŸ“Š</div>
                 <h2>Drop a CSV file here</h2>
-                <p>or click to browse • Up to 10GB</p>
+                <p>or click to browse â€¢ Up to 10GB</p>
                 <div className="dropzone-features">
-                  <span>⚡ Lightning fast queries</span>
-                  <span>🤖 AI-powered with GPT-4o-mini</span>
-                  <span>📈 Handle millions of rows</span>
+                  <span>âš¡ Lightning fast queries</span>
+                  <span>ðŸ¤– AI-powered with GPT-4o-mini</span>
+                  <span>ðŸ“ˆ Handle millions of rows</span>
                 </div>
               </>
             )}
@@ -639,9 +638,9 @@ const App: React.FC = () => {
         <div className="modal-overlay" onClick={() => setShowDatasetPicker(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>📁 Your Datasets</h2>
+              <h2>ðŸ“ Your Datasets</h2>
               <button onClick={() => setShowDatasetPicker(false)} className="modal-close">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -677,13 +676,13 @@ const App: React.FC = () => {
                       <div className="dataset-meta">
                         {dataset.status === "ready" && dataset.row_count ? (
                           <>
-                            {dataset.row_count.toLocaleString()} rows •{" "}
+                            {dataset.row_count.toLocaleString()} rows â€¢{" "}
                             {dataset.column_count} columns
                           </>
                         ) : dataset.status === "analyzing" ? (
-                          <span className="status-analyzing">⏳ Analyzing...</span>
+                          <span className="status-analyzing">â³ Analyzing...</span>
                         ) : dataset.status === "error" ? (
-                          <span className="status-error">❌ Error</span>
+                          <span className="status-error">âŒ Error</span>
                         ) : (
                           <>~{dataset.estimated_rows.toLocaleString()} rows (estimated)</>
                         )}
@@ -700,7 +699,7 @@ const App: React.FC = () => {
                       className="btn-delete"
                       title="Delete"
                     >
-                      🗑️
+                      ðŸ—‘ï¸
                     </button>
                   </div>
                 ))
@@ -715,9 +714,9 @@ const App: React.FC = () => {
         <div className="modal-overlay" onClick={() => setShowSQLModal(false)}>
           <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>💻 SQL Query</h2>
+              <h2>ðŸ’» SQL Query</h2>
               <button onClick={() => setShowSQLModal(false)} className="modal-close">
-                ✕
+                âœ•
               </button>
             </div>
 
@@ -743,7 +742,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="modal-hint">
-              💡 Use 'data' as the table name. Only SELECT queries allowed for security.
+              ðŸ’¡ Use 'data' as the table name. Only SELECT queries allowed for security.
             </div>
           </div>
         </div>
@@ -754,9 +753,9 @@ const App: React.FC = () => {
         <div className="modal-overlay" onClick={() => setShowAIModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>🤖 AI Chat</h2>
+              <h2>ðŸ¤– AI Chat</h2>
               <button onClick={() => setShowAIModal(false)} className="modal-close">
-                ✕
+                âœ•
               </button>
             </div>
 
