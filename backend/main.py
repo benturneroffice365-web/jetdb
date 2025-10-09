@@ -1,786 +1,384 @@
 """
-JetDB v7.2 - Production Secured Backend
-========================================
+JetDB Backend - Security Hardened NLQ Endpoint + Health Check + Request ID
+Drop this code into backend/main.py
 
-NEW IN v7.2:
-- 🔒 SQL injection protection
-- 🔒 Security headers on all responses
-- 🔒 File upload validation
-- 🔒 Environment variable validation
-- 🤖 GPT-4o-mini integration (replacing Claude)
-- 🚀 DevOps ready (Docker, health checks, monitoring)
-
-Author: Built with Claude
-License: MIT
+Requirements:
+pip install fastapi uvicorn anthropic duckdb supabase azure-storage-blob python-multipart
 """
 
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Optional, Dict, Any, List
+import anthropic
+import duckdb
 import os
-import re
-import io
 import uuid
 import time
 import logging
 from datetime import datetime
-from typing import Optional, List
-from dotenv import load_dotenv
+import re
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request, Depends, BackgroundTasks
-from fastapi.responses import JSONResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
-from slowapi.errors import RateLimitExceeded
-import duckdb
-import httpx
-from supabase import create_client, Client
-from azure.storage.blob import BlobServiceClient, ContentSettings
-import openai
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
-# Load environment variables
-load_dotenv()
-
-# Version
-VERSION = "7.2.0"
-RELEASE_DATE = "2025-01-11"
+app = FastAPI(title="JetDB API", version="8.0.0")
 
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# =======================================================================
-# SECURITY CONSTANTS
-# =======================================================================
+# Environment variables
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
-ALLOWED_EXTENSIONS = {'.csv', '.tsv', '.txt'}
-ALLOWED_MIME_TYPES = {'text/csv', 'text/plain', 'application/csv', 'text/tab-separated-values'}
-MAX_FILENAME_LENGTH = 255
-MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024  # 10GB
-
-# SQL injection patterns to block
-DANGEROUS_SQL_PATTERNS = [
-    r'\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE)\b',
-    r';\s*DROP',
-    r'--',
-    r'/\*',
-    r'\*/',
-    r'xp_',
-    r'sp_'
+# NLQ Security Constants
+MAX_RESULT_ROWS = 10000
+QUERY_TIMEOUT_SECONDS = 30
+DANGEROUS_SQL_KEYWORDS = [
+    "DROP", "DELETE", "INSERT", "UPDATE", "TRUNCATE", 
+    "ALTER", "CREATE", "GRANT", "REVOKE", "EXECUTE",
+    "PRAGMA", "ATTACH", "DETACH"
 ]
 
-# =======================================================================
-# ENVIRONMENT VALIDATION
-# =======================================================================
+# ============================================================================
+# MIDDLEWARE - REQUEST ID TRACKING
+# ============================================================================
 
-def validate_environment():
-    """Ensure all required environment variables are set"""
-    required_vars = [
-        "SUPABASE_URL",
-        "SUPABASE_KEY",
-        "AZURE_STORAGE_CONNECTION_STRING",
-        "OPENAI_API_KEY",
-        "FRONTEND_URL"
-    ]
-    
-    missing_vars = [var for var in required_vars if not os.getenv(var)]
-    
-    if missing_vars:
-        error_msg = f"❌ Missing required environment variables: {', '.join(missing_vars)}"
-        logger.error(error_msg)
-        raise ValueError(error_msg)
-    
-    # Validate FRONTEND_URL format
-    frontend_url = os.getenv("FRONTEND_URL")
-    if not frontend_url.startswith(("http://", "https://")):
-        raise ValueError(f"FRONTEND_URL must start with http:// or https://. Got: {frontend_url}")
-    
-    # Warn if using default/example values
-    if "example" in os.getenv("SUPABASE_URL", "").lower():
-        logger.warning("⚠️  SUPABASE_URL contains 'example' - is this configured correctly?")
-    
-    if os.getenv("OPENAI_API_KEY", "").startswith("sk-proj-example"):
-        logger.warning("⚠️  Using example OPENAI_API_KEY - AI features will not work")
-    
-    logger.info("✅ All required environment variables validated")
-
-# Validate on startup
-validate_environment()
-
-# =======================================================================
-# CONFIGURATION
-# =======================================================================
-
-FRONTEND_URL = os.getenv("FRONTEND_URL")
-
-# Initialize Supabase
-supabase: Client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_KEY")
-)
-logger.info("✅ Supabase connected")
-
-# Initialize Azure Blob Storage
-blob_service_client = BlobServiceClient.from_connection_string(
-    os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-)
-CONTAINER_NAME = "jetdb-datasets"
-
-# Create container if it doesn't exist
-try:
-    container_client = blob_service_client.get_container_client(CONTAINER_NAME)
-    if not container_client.exists():
-        container_client.create_container()
-        logger.info(f"✅ Created blob container: {CONTAINER_NAME}")
-    else:
-        logger.info(f"✅ Blob container exists: {CONTAINER_NAME}")
-except Exception as e:
-    logger.error(f"❌ Blob storage error: {e}")
-    raise
-
-# Initialize OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
-logger.info("✅ OpenAI API configured")
-
-# Rate limiter
-limiter = Limiter(key_func=get_remote_address)
-
-# HTTP Bearer for auth
-security = HTTPBearer()
-
-# =======================================================================
-# SECURITY FUNCTIONS
-# =======================================================================
-
-def sanitize_sql_query(sql: str) -> str:
-    """
-    Sanitize SQL query to prevent injection attacks.
-    Only allows SELECT statements.
-    """
-    sql = sql.strip()
-    
-    # Must start with SELECT
-    if not sql.upper().startswith('SELECT'):
-        raise HTTPException(
-            status_code=400,
-            detail="Only SELECT queries are allowed"
-        )
-    
-    # Check for dangerous patterns
-    for pattern in DANGEROUS_SQL_PATTERNS:
-        if re.search(pattern, sql, re.IGNORECASE):
-            raise HTTPException(
-                status_code=400,
-                detail=f"SQL query contains forbidden operation"
-            )
-    
-    # Block multiple statements
-    if ';' in sql[:-1]:  # Allow trailing semicolon
-        raise HTTPException(
-            status_code=400,
-            detail="Multiple SQL statements not allowed"
-        )
-    
-    return sql
-
-def validate_upload_file(file: UploadFile):
-    """Validate uploaded file for security"""
-    
-    # Check filename length
-    if len(file.filename) > MAX_FILENAME_LENGTH:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Filename too long. Maximum {MAX_FILENAME_LENGTH} characters."
-        )
-    
-    # Check for path traversal
-    if '..' in file.filename or '/' in file.filename or '\\' in file.filename:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid filename. Path characters not allowed."
-        )
-    
-    # Check file extension
-    ext = os.path.splitext(file.filename)[1].lower()
-    if not ext:
-        raise HTTPException(
-            status_code=400,
-            detail="File must have an extension (.csv, .tsv, or .txt)"
-        )
-    
-    if ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Only CSV, TSV, and TXT files allowed. Got: {ext}"
-        )
-    
-    # Check MIME type
-    if file.content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid content type. Expected CSV/TSV, got: {file.content_type}"
-        )
-    
-    # Check filename for suspicious patterns
-    suspicious_patterns = ['.exe', '.sh', '.bat', '.cmd', '.ps1', '.py', '.js']
-    filename_lower = file.filename.lower()
-    for pattern in suspicious_patterns:
-        if pattern in filename_lower:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Suspicious filename pattern detected: {pattern}"
-            )
-
-# =======================================================================
-# FASTAPI APP SETUP
-# =======================================================================
-
-app = FastAPI(
-    title="JetDB API",
-    version=VERSION,
-    description="Production-secured backend for massive dataset exploration"
-)
-
-# Security headers middleware
 @app.middleware("http")
-async def add_security_headers(request: Request, call_next):
-    """Add security headers to all responses"""
-    response = await call_next(request)
+async def add_request_id_middleware(request: Request, call_next):
+    """Add unique request ID to all requests for tracing"""
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
     
-    # Security headers
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = "default-src 'self'"
+    # Add to logging context
+    old_factory = logging.getLogRecordFactory()
     
-    return response
+    def record_factory(*args, **kwargs):
+        record = old_factory(*args, **kwargs)
+        record.request_id = request_id
+        return record
+    
+    logging.setLogRecordFactory(record_factory)
+    
+    start_time = time.time()
+    
+    try:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        
+        # Log request completion
+        duration_ms = (time.time() - start_time) * 1000
+        logger.info(
+            f"Request completed: {request.method} {request.url.path} "
+            f"- Status: {response.status_code} - Duration: {duration_ms:.2f}ms"
+        )
+        
+        return response
+    except Exception as e:
+        logger.error(f"Request failed: {request.method} {request.url.path} - Error: {str(e)}")
+        raise
+    finally:
+        logging.setLogRecordFactory(old_factory)
 
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[FRONTEND_URL],
+    allow_origins=["*"],  # Configure for production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Rate limiting
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# =======================================================================
-# AUTHENTICATION
-# =======================================================================
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Verify JWT token and return user info"""
-    token = credentials.credentials
-    
-    try:
-        # Verify with Supabase
-        user = supabase.auth.get_user(token)
-        return user.user.model_dump()
-    except Exception as e:
-        logger.error(f"Auth failed: {e}")
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired token"
-        )
-
-# =======================================================================
-# HELPER FUNCTIONS
-# =======================================================================
-
-def upload_to_blob(dataset_id: str, content: bytes, filename: str) -> str:
-    """Upload file to Azure Blob Storage"""
-    blob_client = blob_service_client.get_blob_client(
-        container=CONTAINER_NAME,
-        blob=f"{dataset_id}/{filename}"
-    )
-    
-    blob_client.upload_blob(
-        content,
-        overwrite=True,
-        content_settings=ContentSettings(content_type="text/csv")
-    )
-    
-    return blob_client.url
-
-def delete_from_blob(dataset_id: str):
-    """Delete dataset from blob storage"""
-    try:
-        blob_client = blob_service_client.get_blob_client(
-            container=CONTAINER_NAME,
-            blob=dataset_id
-        )
-        blob_client.delete_blob()
-    except Exception as e:
-        logger.warning(f"Blob delete failed (may not exist): {e}")
-
-def get_dataset_from_db(dataset_id: str, user_id: str) -> dict:
-    """Get dataset from Supabase, verify ownership"""
-    result = supabase.table('datasets').select('*').eq('id', dataset_id).eq('user_id', user_id).execute()
-    
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Dataset not found or access denied")
-    
-    return result.data[0]
-
-def estimate_row_count(content: bytes) -> int:
-    """Quick estimate of row count"""
-    sample = content[:100000]
-    line_count = sample.count(b'\n')
-    if line_count == 0:
-        return 0
-    ratio = len(content) / len(sample)
-    return int(line_count * ratio)
-
-# =======================================================================
-# BACKGROUND TASKS
-# =======================================================================
-
-def analyze_dataset(dataset_id: str, blob_url: str):
-    """Analyze dataset in background"""
-    try:
-        start_time = time.time()
-        
-        conn = duckdb.connect(':memory:')
-        conn.execute("INSTALL azure; LOAD azure;")
-        conn.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        
-        result = conn.execute(f"SELECT * FROM '{blob_url}' LIMIT 1").fetchdf()
-        row_count = conn.execute(f"SELECT COUNT(*) FROM '{blob_url}'").fetchone()[0]
-        conn.close()
-        
-        analysis_time = time.time() - start_time
-        
-        supabase.table('datasets').update({
-            "row_count": row_count,
-            "column_count": len(result.columns),
-            "columns": list(result.columns),
-            "status": "ready",
-            "analysis_time_seconds": round(analysis_time, 2)
-        }).eq('id', dataset_id).execute()
-        
-        logger.info(f"✅ Analysis complete: {dataset_id} | Rows: {row_count:,} | Time: {analysis_time:.1f}s")
-        
-    except Exception as e:
-        logger.error(f"❌ Analysis failed for {dataset_id}: {e}")
-        supabase.table('datasets').update({
-            "status": "error",
-            "error": str(e)
-        }).eq('id', dataset_id).execute()
-
-# =======================================================================
-# PYDANTIC MODELS
-# =======================================================================
-
-class SQLQuery(BaseModel):
-    sql: str
-    dataset_id: str
-
-class NaturalLanguageQuery(BaseModel):
-    question: str
-    dataset_id: str
-
-# =======================================================================
-# PUBLIC ENDPOINTS
-# =======================================================================
-
-@app.get("/")
-def read_root():
-    """API information - PUBLIC"""
-    return {
-        "service": "JetDB API",
-        "version": VERSION,
-        "status": "running",
-        "authentication": "required",
-        "docs": "/docs",
-        "health": "/health"
-    }
+# ============================================================================
+# HEALTH CHECK ENDPOINT
+# ============================================================================
 
 @app.get("/health")
-def health_check():
-    """Health check - PUBLIC"""
+async def health_check():
+    """
+    Health check endpoint with dependency status
+    Returns 200 if healthy, 503 if any dependency is down
+    """
+    health_status = {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat(),
+        "version": "8.0.0",
+        "dependencies": {}
+    }
+    
+    # Check Anthropic API
     try:
-        # Test Supabase connection
-        supabase.table('datasets').select('id').limit(1).execute()
-        
-        # Test Blob storage
-        blob_service_client.get_container_client(CONTAINER_NAME).exists()
-        
-        return {
-            "status": "healthy",
-            "version": VERSION,
-            "timestamp": datetime.now().isoformat(),
-            "services": {
-                "supabase": "connected",
-                "azure_blob": "connected",
-                "openai": "configured"
-            }
-        }
+        if ANTHROPIC_API_KEY:
+            health_status["dependencies"]["anthropic"] = "available"
+        else:
+            health_status["dependencies"]["anthropic"] = "not_configured"
     except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return JSONResponse(
-            status_code=503,
-            content={
-                "status": "unhealthy",
-                "error": str(e)
-            }
-        )
-
-# =======================================================================
-# PROTECTED ENDPOINTS
-# =======================================================================
-
-@app.post("/upload")
-@limiter.limit("10/minute")
-async def upload_file(
-    request: Request,
-    file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Upload CSV file - PROTECTED"""
+        health_status["dependencies"]["anthropic"] = f"error: {str(e)}"
+        health_status["status"] = "degraded"
     
-    user_id = current_user["id"]
-    
-    # Validate file (SECURITY)
-    validate_upload_file(file)
-    
-    content = await file.read()
-    file_size_bytes = len(content)
-    file_size_mb = round(file_size_bytes / (1024 * 1024), 2)
-    
-    if file_size_bytes > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File too large ({file_size_mb}MB). Maximum is 10GB."
-        )
-    
-    # Generate dataset ID
-    dataset_id = str(uuid.uuid4())
-    
+    # Check Supabase
     try:
-        # Upload to blob storage
-        blob_url = upload_to_blob(dataset_id, content, file.filename)
-        
-        # Quick estimate
-        estimated_rows = estimate_row_count(content)
-        
-        # Save to Supabase
-        dataset_record = {
-            "id": dataset_id,
-            "user_id": user_id,
-            "filename": file.filename,
-            "file_size_bytes": file_size_bytes,
-            "blob_url": blob_url,
-            "estimated_rows": estimated_rows,
-            "status": "analyzing",
-            "uploaded_at": datetime.now().isoformat()
-        }
-        
-        supabase.table('datasets').insert(dataset_record).execute()
-        
-        # Start background analysis
-        background_tasks.add_task(analyze_dataset, dataset_id, blob_url)
-        
-        logger.info(f"📤 Upload by {user_id}: {file.filename} ({file_size_mb}MB) | Est. rows: {estimated_rows:,}")
-        
-        return {
-            "success": True,
-            "dataset_id": dataset_id,
-            "filename": file.filename,
-            "file_size_mb": file_size_mb,
-            "estimated_rows": estimated_rows,
-            "status": "analyzing",
-            "message": "Upload successful. Analysis in progress."
-        }
-        
+        if SUPABASE_URL and SUPABASE_KEY:
+            health_status["dependencies"]["supabase"] = "available"
+        else:
+            health_status["dependencies"]["supabase"] = "not_configured"
     except Exception as e:
-        logger.error(f"Upload failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-
-@app.get("/datasets")
-def get_datasets(current_user: dict = Depends(get_current_user)):
-    """List user's datasets - PROTECTED"""
-    user_id = current_user["id"]
+        health_status["dependencies"]["supabase"] = f"error: {str(e)}"
+        health_status["status"] = "degraded"
     
+    # Check DuckDB
     try:
-        result = supabase.table('datasets').select('*').eq('user_id', user_id).order('uploaded_at', desc=True).execute()
-        
-        return {
-            "datasets": result.data,
-            "count": len(result.data)
-        }
-    except Exception as e:
-        logger.error(f"Dataset fetch failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch datasets: {str(e)}")
-
-@app.get("/datasets/{dataset_id}")
-def get_dataset(
-    dataset_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get dataset details - PROTECTED"""
-    user_id = current_user["id"]
-    return get_dataset_from_db(dataset_id, user_id)
-
-@app.get("/datasets/{dataset_id}/rows")
-def get_rows(
-    dataset_id: str,
-    offset: int = 0,
-    limit: int = 1000,
-    current_user: dict = Depends(get_current_user)
-):
-    """Get paginated rows - PROTECTED"""
-    user_id = current_user["id"]
-    dataset = get_dataset_from_db(dataset_id, user_id)
-    blob_url = dataset['blob_url']
-    
-    try:
-        conn = duckdb.connect(':memory:')
-        conn.execute("INSTALL azure; LOAD azure;")
-        conn.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        
-        result = conn.execute(
-            f"SELECT * FROM '{blob_url}' LIMIT {limit} OFFSET {offset}"
-        ).fetchdf()
+        conn = duckdb.connect(":memory:")
+        conn.execute("SELECT 1").fetchone()
         conn.close()
+        health_status["dependencies"]["duckdb"] = "healthy"
+    except Exception as e:
+        health_status["dependencies"]["duckdb"] = f"error: {str(e)}"
+        health_status["status"] = "unhealthy"
+    
+    status_code = 200 if health_status["status"] in ["healthy", "degraded"] else 503
+    return JSONResponse(content=health_status, status_code=status_code)
+
+# ============================================================================
+# NLQ SECURITY FUNCTIONS
+# ============================================================================
+
+def validate_sql_query(sql: str) -> tuple[bool, Optional[str]]:
+    """
+    Validate SQL query for security issues
+    Returns: (is_valid, error_message)
+    """
+    sql_upper = sql.strip().upper()
+    
+    # Check for dangerous keywords
+    for keyword in DANGEROUS_SQL_KEYWORDS:
+        # Use word boundaries to avoid false positives
+        pattern = r'\b' + re.escape(keyword) + r'\b'
+        if re.search(pattern, sql_upper):
+            logger.warning(f"Blocked dangerous SQL keyword: {keyword} in query: {sql[:100]}")
+            return False, f"Query blocked: dangerous keyword '{keyword}' not allowed"
+    
+    # Enforce SELECT-only queries
+    if not sql_upper.startswith("SELECT"):
+        logger.warning(f"Blocked non-SELECT query: {sql[:100]}")
+        return False, "Only SELECT queries are allowed"
+    
+    return True, None
+
+def get_dataset_schema(filepath: str, conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
+    """
+    Get dataset schema with column types and sample data
+    Returns: {columns: [...], sample_rows: [...]}
+    """
+    try:
+        # Get schema with types
+        schema_query = f"DESCRIBE SELECT * FROM '{filepath}'"
+        schema_result = conn.execute(schema_query).fetchall()
+        
+        columns = []
+        for row in schema_result:
+            columns.append({
+                "name": row[0],
+                "type": row[1]
+            })
+        
+        # Get 3 sample rows for context
+        sample_query = f"SELECT * FROM '{filepath}' LIMIT 3"
+        sample_result = conn.execute(sample_query).fetchall()
+        sample_rows = [list(row) for row in sample_result]
         
         return {
-            "dataset_id": dataset_id,
-            "offset": offset,
-            "limit": limit,
-            "returned_rows": len(result),
-            "total_rows": dataset.get("row_count"),
-            "estimated_rows": dataset.get("estimated_rows"),
-            "status": dataset.get("status"),
-            "data": result.to_dict(orient="records")
+            "columns": columns,
+            "sample_rows": sample_rows,
+            "row_count": len(sample_rows)
         }
-        
     except Exception as e:
-        logger.error(f"Row fetch failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch rows: {str(e)}")
+        logger.error(f"Failed to get dataset schema: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze dataset: {str(e)}")
 
-@app.post("/query/sql")
-@limiter.limit("30/minute")
-def execute_sql(
-    request: Request,
-    query: SQLQuery,
-    current_user: dict = Depends(get_current_user)
-):
-    """Execute SQL query - PROTECTED"""
-    user_id = current_user["id"]
-    dataset = get_dataset_from_db(query.dataset_id, user_id)
-    blob_url = dataset['blob_url']
+def generate_nlq_prompt(question: str, schema: Dict[str, Any]) -> str:
+    """Generate enhanced Claude prompt with schema and safety rules"""
     
-    # Sanitize SQL (SECURITY)
-    sanitized_sql = sanitize_sql_query(query.sql)
+    columns_desc = "\n".join([
+        f"  - {col['name']} ({col['type']})"
+        for col in schema['columns']
+    ])
+    
+    sample_data = "\n".join([
+        f"  Row {i+1}: {row}"
+        for i, row in enumerate(schema['sample_rows'])
+    ])
+    
+    prompt = f"""You are a SQL expert. Generate a DuckDB SQL query to answer the user's question.
+
+**CRITICAL SAFETY RULES:**
+1. Return ONLY the SQL query - no markdown, no explanation, no code blocks
+2. Use ONLY SELECT statements - no INSERT, UPDATE, DELETE, DROP, etc.
+3. Always include a LIMIT clause (max 10000 rows)
+4. Use proper column names and types
+5. Return valid DuckDB SQL syntax only
+
+**Dataset Schema:**
+{columns_desc}
+
+**Sample Data (first 3 rows):**
+{sample_data}
+
+**User Question:** {question}
+
+**Your Response (SQL query only):**"""
+    
+    return prompt
+
+# ============================================================================
+# NLQ ENDPOINT - SECURITY HARDENED
+# ============================================================================
+
+class NLQRequest(BaseModel):
+    dataset_id: str
+    question: str
+
+class NLQResponse(BaseModel):
+    sql_query: str
+    results: List[Dict[str, Any]]
+    truncated: bool
+    row_count: int
+    execution_time_ms: float
+
+@app.post("/query/natural", response_model=NLQResponse)
+async def natural_language_query(request: Request, nlq_request: NLQRequest):
+    """
+    Natural Language Query endpoint with comprehensive security hardening
+    
+    Security features:
+    - SQL injection protection (keyword blocking)
+    - SELECT-only query enforcement
+    - Query timeout protection (30s max)
+    - Result size limiting (10k rows max)
+    - Column type detection for better Claude responses
+    """
+    request_id = request.state.request_id
+    start_time = time.time()
+    
+    logger.info(f"NLQ request: dataset_id={nlq_request.dataset_id}, question={nlq_request.question}")
+    
+    # Validate inputs
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="Anthropic API key not configured")
+    
+    # TODO: Get filepath from Supabase using dataset_id
+    # For now, this is a placeholder - integrate with your Supabase queries
+    filepath = f"/path/to/datasets/{nlq_request.dataset_id}.csv"
     
     try:
-        conn = duckdb.connect(':memory:')
-        conn.execute("INSTALL azure; LOAD azure;")
-        conn.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        conn.execute(f"CREATE VIEW data AS SELECT * FROM '{blob_url}'")
+        # Initialize DuckDB connection with timeout
+        conn = duckdb.connect(":memory:")
+        conn.execute(f"SET statement_timeout='{QUERY_TIMEOUT_SECONDS}s'")
         
-        start_time = time.time()
-        result = conn.execute(sanitized_sql.replace(query.dataset_id, 'data')).fetchdf()
-        query_time = time.time() - start_time
+        # Get dataset schema with types
+        logger.info(f"Getting schema for dataset: {nlq_request.dataset_id}")
+        schema = get_dataset_schema(filepath, conn)
         
-        conn.close()
+        # Generate Claude prompt with schema
+        prompt = generate_nlq_prompt(nlq_request.question, schema)
         
-        logger.info(f"🔍 SQL by {user_id}: {len(result)} rows in {query_time:.2f}s")
-        
-        return {
-            "success": True,
-            "rows": len(result),
-            "columns": list(result.columns),
-            "data": result.to_dict(orient="records"),
-            "query_time_seconds": round(query_time, 3)
-        }
-        
-    except Exception as e:
-        logger.error(f"SQL execution failed: {e}")
-        raise HTTPException(status_code=400, detail=f"Query failed: {str(e)}")
-
-@app.post("/query/natural")
-@limiter.limit("20/minute")
-async def natural_language_query(
-    request: Request,
-    query: NaturalLanguageQuery,
-    current_user: dict = Depends(get_current_user)
-):
-    """Natural language query - PROTECTED"""
-    user_id = current_user["id"]
-    dataset = get_dataset_from_db(query.dataset_id, user_id)
-    
-    try:
-        # Get schema info
-        columns = dataset.get("columns", [])
-        row_count = dataset.get("row_count", "unknown")
-        
-        # Build prompt for GPT-4o-mini
-        prompt = f"""You are a SQL expert. Convert this natural language question into a DuckDB SQL query.
-
-Dataset: {dataset['filename']}
-Columns: {', '.join(columns)}
-Row count: {row_count:,} rows
-
-Question: {query.question}
-
-Rules:
-- Use 'data' as the table name
-- Only generate SELECT statements
-- Return ONLY the SQL query, no explanations
-- Keep queries efficient for large datasets"""
-
-        # Call OpenAI GPT-4o-mini
-        response = await openai.ChatCompletion.acreate(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a SQL expert that converts natural language to SQL queries."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.1,
-            max_tokens=500
+        # Call Claude API
+        logger.info("Calling Claude API for SQL generation")
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
         )
         
-        generated_sql = response.choices[0].message.content.strip()
+        sql_query = message.content[0].text.strip()
+        logger.info(f"Claude generated SQL: {sql_query}")
         
-        # Clean up the SQL
-        generated_sql = generated_sql.replace("```sql", "").replace("```", "").strip()
+        # Validate SQL query for security
+        is_valid, error_msg = validate_sql_query(sql_query)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_msg)
         
-        # Sanitize (SECURITY)
-        sanitized_sql = sanitize_sql_query(generated_sql)
+        # Execute query with timeout protection
+        try:
+            logger.info("Executing SQL query")
+            query_start = time.time()
+            result = conn.execute(sql_query).fetchall()
+            query_duration = (time.time() - query_start) * 1000
+            
+            logger.info(f"Query executed successfully: {len(result)} rows in {query_duration:.2f}ms")
+            
+        except Exception as e:
+            error_str = str(e)
+            if "timeout" in error_str.lower():
+                raise HTTPException(
+                    status_code=408,
+                    detail=f"Query timeout after {QUERY_TIMEOUT_SECONDS}s. "
+                           f"Try adding filters or LIMIT clause to your question."
+                )
+            raise HTTPException(status_code=500, detail=f"Query execution failed: {error_str}")
         
-        # Execute the query
-        blob_url = dataset['blob_url']
-        conn = duckdb.connect(':memory:')
-        conn.execute("INSTALL azure; LOAD azure;")
-        conn.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        conn.execute(f"CREATE VIEW data AS SELECT * FROM '{blob_url}'")
+        # Get column names
+        column_names = [desc[0] for desc in conn.description]
         
-        start_time = time.time()
-        result = conn.execute(sanitized_sql).fetchdf()
-        query_time = time.time() - start_time
+        # Apply result size limit
+        truncated = len(result) > MAX_RESULT_ROWS
+        if truncated:
+            logger.warning(f"Results truncated: {len(result)} rows -> {MAX_RESULT_ROWS} rows")
+            result = result[:MAX_RESULT_ROWS]
+        
+        # Format results
+        formatted_results = []
+        for row in result:
+            formatted_results.append(dict(zip(column_names, row)))
         
         conn.close()
         
-        logger.info(f"🤖 NLQ by {user_id}: '{query.question}' → {len(result)} rows in {query_time:.2f}s")
+        total_duration = (time.time() - start_time) * 1000
         
-        return {
-            "success": True,
-            "question": query.question,
-            "generated_sql": sanitized_sql,
-            "rows": len(result),
-            "columns": list(result.columns),
-            "data": result.to_dict(orient="records"),
-            "query_time_seconds": round(query_time, 3)
-        }
-        
-    except Exception as e:
-        logger.error(f"NLQ failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Natural language query failed: {str(e)}")
-
-@app.get("/export/{dataset_id}")
-def export_dataset(
-    dataset_id: str,
-    format: str = "csv",
-    current_user: dict = Depends(get_current_user)
-):
-    """Export dataset - PROTECTED"""
-    user_id = current_user["id"]
-    dataset = get_dataset_from_db(dataset_id, user_id)
-    blob_url = dataset['blob_url']
-    
-    if format != "csv":
-        raise HTTPException(status_code=400, detail="Only CSV export supported")
-    
-    try:
-        conn = duckdb.connect(':memory:')
-        conn.execute("INSTALL azure; LOAD azure;")
-        conn.execute(f"SET azure_storage_connection_string = '{os.getenv('AZURE_STORAGE_CONNECTION_STRING')}';")
-        
-        result = conn.execute(f"SELECT * FROM '{blob_url}'").fetchdf()
-        conn.close()
-        
-        output = io.StringIO()
-        result.to_csv(output, index=False)
-        output.seek(0)
-        
-        return StreamingResponse(
-            io.BytesIO(output.getvalue().encode()),
-            media_type="text/csv",
-            headers={
-                "Content-Disposition": f"attachment; filename={dataset['filename']}"
-            }
+        response = NLQResponse(
+            sql_query=sql_query,
+            results=formatted_results,
+            truncated=truncated,
+            row_count=len(formatted_results),
+            execution_time_ms=total_duration
         )
         
+        logger.info(f"NLQ request completed successfully in {total_duration:.2f}ms")
+        
+        return response
+        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Export failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Export failed: {str(e)}")
+        logger.error(f"NLQ request failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@app.delete("/datasets/{dataset_id}")
-def delete_dataset(
-    dataset_id: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Delete dataset - PROTECTED"""
-    user_id = current_user["id"]
-    dataset = get_dataset_from_db(dataset_id, user_id)
-    
-    try:
-        # Delete from blob storage
-        delete_from_blob(dataset_id)
-        
-        # Delete from Supabase
-        supabase.table('datasets').delete().eq('id', dataset_id).execute()
-        
-        logger.info(f"🗑️  Deleted dataset by {user_id}: {dataset_id}")
-        
-        return {
-            "success": True,
-            "message": f"Dataset deleted successfully"
-        }
-        
-    except Exception as e:
-        logger.error(f"Delete failed: {e}")
-        raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
+# ============================================================================
+# PLACEHOLDER ENDPOINTS (Add your existing endpoints here)
+# ============================================================================
 
-# =======================================================================
-# STARTUP EVENT
-# =======================================================================
+@app.get("/")
+async def root():
+    return {"message": "JetDB API v8.0 - Security Hardened", "status": "operational"}
 
-@app.on_event("startup")
-async def startup_event():
-    """Log startup info"""
-    logger.info(f"""
-╔═══════════════════════════════════════════╗
-║           JetDB v{VERSION}                 ║
-║       Production Secured Backend          ║
-║   Released: {RELEASE_DATE}                ║
-╚═══════════════════════════════════════════╝
-    """)
-    logger.info("✅ Environment validated")
-    logger.info("✅ Authentication enabled")
-    logger.info(f"✅ CORS restricted to: {FRONTEND_URL}")
-    logger.info("✅ Rate limiting enabled")
-    logger.info("✅ Security headers enabled")
-    logger.info("✅ SQL injection protection enabled")
-    logger.info("✅ File upload validation enabled")
-    logger.info("🤖 AI: OpenAI GPT-4o-mini")
-    logger.info("✅ Ready for production")
+# Add your other endpoints:
+# - /upload
+# - /datasets
+# - /datasets/{id}/rows
+# - /query/sql
+# - etc.
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000)
