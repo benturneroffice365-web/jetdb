@@ -1,3 +1,4 @@
+import ErrorBoundary from './components/ErrorBoundary';
 import React, { useState, useEffect, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { createClient, Session } from '@supabase/supabase-js';
@@ -90,7 +91,7 @@ const App: React.FC = () => {
   // Mobile warning
   useEffect(() => {
     if (window.innerWidth < 768) {
-      toast("âš ï¸ JetDB works best on desktop", { duration: 8000 });
+      toast("⚠️ JetDB works best on desktop", { duration: 8000 });
     }
   }, []);
 
@@ -289,7 +290,7 @@ const App: React.FC = () => {
       if (data.total_rows > SPREADSHEET_PAGE_SIZE) {
         toast(`Showing first ${SPREADSHEET_PAGE_SIZE.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`, {
           duration: 5000,
-          icon: "â„¹ï¸",
+          icon: "ℹ️",
         });
       }
     } catch (error: any) {
@@ -449,7 +450,7 @@ const App: React.FC = () => {
 
       toast.success(
         <div>
-          <div>âœ¨ {data.rows} rows in {data.query_time_seconds}s</div>
+          <div>✨ {data.rows} rows in {data.query_time_seconds}s</div>
           <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
             SQL: {data.generated_sql}
           </div>
@@ -493,323 +494,329 @@ const App: React.FC = () => {
   // Auth screen
   if (authLoading) {
     return (
-      <div className="auth-container">
-        <div className="auth-box">
-          <div className="auth-loader">Loading...</div>
+      <ErrorBoundary>
+        <div className="auth-container">
+          <div className="auth-box">
+            <div className="auth-loader">Loading...</div>
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
   if (!session) {
     return (
-      <div className="auth-container">
-        <Toaster position="top-right" />
-        <div className="auth-box">
-          <div className="auth-header">
-            <h1>JetDB</h1>
-            <p>BIG DATA FOR THE REST OF US</p>
-            <div className="version-badge">v{VERSION} powered by GPT-4o-mini</div>
-          </div>
+      <ErrorBoundary>
+        <div className="auth-container">
+          <Toaster position="top-right" />
+          <div className="auth-box">
+            <div className="auth-header">
+              <h1>JetDB</h1>
+              <p>BIG DATA FOR THE REST OF US</p>
+              <div className="version-badge">v{VERSION} powered by GPT-4o-mini</div>
+            </div>
 
-          <form onSubmit={handleAuth} className="auth-form">
-            <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
-              className="auth-input"
-            />
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              className="auth-input"
-              minLength={6}
-            />
-            <button type="submit" className="auth-button" disabled={authLoading}>
-              {authLoading ? "Loading..." : isSignup ? "Sign Up" : "Sign In"}
-            </button>
-          </form>
+            <form onSubmit={handleAuth} className="auth-form">
+              <input
+                type="email"
+                placeholder="Email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="auth-input"
+              />
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                className="auth-input"
+                minLength={6}
+              />
+              <button type="submit" className="auth-button" disabled={authLoading}>
+                {authLoading ? "Loading..." : isSignup ? "Sign Up" : "Sign In"}
+              </button>
+            </form>
 
-          <div className="auth-toggle">
-            {isSignup ? "Already have an account?" : "Don't have an account?"}
-            <button onClick={() => setIsSignup(!isSignup)} className="auth-link">
-              {isSignup ? "Sign In" : "Sign Up"}
-            </button>
-          </div>
+            <div className="auth-toggle">
+              {isSignup ? "Already have an account?" : "Don't have an account?"}
+              <button onClick={() => setIsSignup(!isSignup)} className="auth-link">
+                {isSignup ? "Sign In" : "Sign Up"}
+              </button>
+            </div>
 
-          <div className="auth-features">
-            <div className="feature-item">Upload massive CSVs (up to 10GB)</div>
-            <div className="feature-item">Query millions of rows instantly</div>
-            <div className="feature-item">Ask questions of your data in plain English</div>
+            <div className="auth-features">
+              <div className="feature-item">Upload massive CSVs (up to 10GB)</div>
+              <div className="feature-item">Query millions of rows instantly</div>
+              <div className="feature-item">Ask questions of your data in plain English</div>
+            </div>
           </div>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
   // Main app
   return (
-    <div className="app">
-      <Toaster position="top-right" />
+    <ErrorBoundary>
+      <div className="app">
+        <Toaster position="top-right" />
 
-      {/* Header */}
-      <header className="header">
-        <div className="header-left">
-          <h1 className="logo">âš¡ JetDB</h1>
-          <span className="version">v{VERSION}</span>
-          {currentDataset && (
-            <span className="current-file">
-              {currentDataset.filename}
-              {currentDataset.row_count && (
-                <span className="row-count">
-                  {currentDataset.row_count.toLocaleString()} rows
-                </span>
-              )}
-            </span>
-          )}
-        </div>
-        
-        <div className="header-right">
-          <button onClick={() => setShowDatasetPicker(true)} className="btn-secondary">
-            ðŸ“ Datasets ({datasets.length})
-          </button>
-          {selectedDataset && (
-            <>
-              <button onClick={() => setShowSQLModal(true)} className="btn-secondary" title="Ctrl+K">
-                ðŸ’» SQL
-              </button>
-              <button onClick={() => setShowAIModal(true)} className="btn-primary" title="Ctrl+J">
-                ðŸ¤– AI Chat
-              </button>
-            </>
-          )}
-          <button onClick={handleSignOut} className="btn-secondary">
-            Sign Out
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="main-content">
-        {!selectedDataset ? (
-          <div
-            {...getRootProps()}
-            className={`dropzone ${isDragActive ? "dropzone-active" : ""} ${
-              uploading ? "dropzone-uploading" : ""
-            }`}
-          >
-            <input {...getInputProps()} />
-            {uploading ? (
-              <div className="upload-progress">
-                <div className="spinner"></div>
-                <p>Uploading... {uploadProgress}%</p>
-                <div className="progress-bar">
-                  <div
-                    className="progress-fill"
-                    style={{ width: `${uploadProgress}%` }}
-                  ></div>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="dropzone-icon">ðŸ“Š</div>
-                <h2>Drop a CSV file here</h2>
-                <p>or click to browse â€¢ Up to 10GB</p>
-                <div className="dropzone-features">
-                  <span>âš¡ Lightning fast queries</span>
-                  <span>ðŸ¤– AI-powered with GPT-4o-mini</span>
-                  <span>ðŸ“ˆ Handle millions of rows</span>
-                </div>
-              </>
+        {/* Header */}
+        <header className="header">
+          <div className="header-left">
+            <h1 className="logo">⚡ JetDB</h1>
+            <span className="version">v{VERSION}</span>
+            {currentDataset && (
+              <span className="current-file">
+                {currentDataset.filename}
+                {currentDataset.row_count && (
+                  <span className="row-count">
+                    {currentDataset.row_count.toLocaleString()} rows
+                  </span>
+                )}
+              </span>
             )}
           </div>
-        ) : (
-          <div id="luckysheet-container" className="spreadsheet-container"></div>
-        )}
-      </div>
+          
+          <div className="header-right">
+            <button onClick={() => setShowDatasetPicker(true)} className="btn-secondary">
+              📁 Datasets ({datasets.length})
+            </button>
+            {selectedDataset && (
+              <>
+                <button onClick={() => setShowSQLModal(true)} className="btn-secondary" title="Ctrl+K">
+                  💻 SQL
+                </button>
+                <button onClick={() => setShowAIModal(true)} className="btn-primary" title="Ctrl+J">
+                  🤖 AI Chat
+                </button>
+              </>
+            )}
+            <button onClick={handleSignOut} className="btn-secondary">
+              Sign Out
+            </button>
+          </div>
+        </header>
 
-      {/* Dataset Picker Modal */}
-      {showDatasetPicker && (
-        <div className="modal-overlay" onClick={() => setShowDatasetPicker(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>ðŸ“ Your Datasets</h2>
-              <button onClick={() => setShowDatasetPicker(false)} className="modal-close">
-                âœ•
-              </button>
-            </div>
-
-            <input
-              type="text"
-              placeholder="Search datasets..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="search-input"
-            />
-
-            <div className="dataset-list">
-              {filteredDatasets.length === 0 ? (
-                <div className="empty-state">
-                  <p>No datasets found</p>
-                  <button onClick={() => setShowDatasetPicker(false)} className="btn-primary">
-                    Upload Your First CSV
-                  </button>
+        {/* Main Content */}
+        <div className="main-content">
+          {!selectedDataset ? (
+            <div
+              {...getRootProps()}
+              className={`dropzone ${isDragActive ? "dropzone-active" : ""} ${
+                uploading ? "dropzone-uploading" : ""
+              }`}
+            >
+              <input {...getInputProps()} />
+              {uploading ? (
+                <div className="upload-progress">
+                  <div className="spinner"></div>
+                  <p>Uploading... {uploadProgress}%</p>
+                  <div className="progress-bar">
+                    <div
+                      className="progress-fill"
+                      style={{ width: `${uploadProgress}%` }}
+                    ></div>
+                  </div>
                 </div>
               ) : (
-                filteredDatasets.map((dataset) => (
-                  <div
-                    key={dataset.id}
-                    className={`dataset-item ${
-                      selectedDataset === dataset.id ? "dataset-item-selected" : ""
-                    }`}
-                  >
-                    <div className="dataset-info" onClick={() => {
-                      setSelectedDataset(dataset.id);
-                      setShowDatasetPicker(false);
-                    }}>
-                      <div className="dataset-name">{dataset.filename}</div>
-                      <div className="dataset-meta">
-                        {dataset.status === "ready" && dataset.row_count ? (
-                          <>
-                            {dataset.row_count.toLocaleString()} rows â€¢{" "}
-                            {dataset.column_count} columns
-                          </>
-                        ) : dataset.status === "analyzing" ? (
-                          <span className="status-analyzing">â³ Analyzing...</span>
-                        ) : dataset.status === "error" ? (
-                          <span className="status-error">âŒ Error</span>
-                        ) : (
-                          <>~{dataset.estimated_rows.toLocaleString()} rows (estimated)</>
-                        )}
-                      </div>
-                      <div className="dataset-date">
-                        {new Date(dataset.uploaded_at).toLocaleString()}
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteDataset(dataset.id);
-                      }}
-                      className="btn-delete"
-                      title="Delete"
-                    >
-                      ðŸ—‘ï¸
-                    </button>
+                <>
+                  <div className="dropzone-icon">📊</div>
+                  <h2>Drop a CSV file here</h2>
+                  <p>or click to browse • Up to 10GB</p>
+                  <div className="dropzone-features">
+                    <span>⚡ Lightning fast queries</span>
+                    <span>🤖 AI-powered with GPT-4o-mini</span>
+                    <span>📈 Handle millions of rows</span>
                   </div>
-                ))
+                </>
               )}
             </div>
-          </div>
+          ) : (
+            <div id="luckysheet-container" className="spreadsheet-container"></div>
+          )}
         </div>
-      )}
 
-      {/* SQL Modal */}
-      {showSQLModal && (
-        <div className="modal-overlay" onClick={() => setShowSQLModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>ðŸ’» SQL Query</h2>
-              <button onClick={() => setShowSQLModal(false)} className="modal-close">
-                âœ•
-              </button>
-            </div>
+        {/* Dataset Picker Modal */}
+        {showDatasetPicker && (
+          <div className="modal-overlay" onClick={() => setShowDatasetPicker(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>📁 Your Datasets</h2>
+                <button onClick={() => setShowDatasetPicker(false)} className="modal-close">
+                  ✕
+                </button>
+              </div>
 
-            <textarea
-              value={sqlQuery}
-              onChange={(e) => setSqlQuery(e.target.value)}
-              className="sql-editor"
-              placeholder="SELECT * FROM data LIMIT 100"
-              rows={10}
-            />
+              <input
+                type="text"
+                placeholder="Search datasets..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="search-input"
+              />
 
-            <div className="modal-footer">
-              <button onClick={() => setShowSQLModal(false)} className="btn-secondary">
-                Cancel
-              </button>
-              <button
-                onClick={executeSQLQuery}
-                className="btn-primary"
-                disabled={queryLoading}
-              >
-                {queryLoading ? "Running..." : "Run Query"}
-              </button>
-            </div>
-
-            <div className="modal-hint">
-              ðŸ’¡ Use 'data' as the table name. Only SELECT queries allowed for security.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Modal */}
-      {showAIModal && (
-        <div className="modal-overlay" onClick={() => setShowAIModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>ðŸ¤– AI Chat</h2>
-              <button onClick={() => setShowAIModal(false)} className="modal-close">
-                âœ•
-              </button>
-            </div>
-
-            <div className="ai-info">
-              <span className="ai-badge">Powered by GPT-4o-mini</span>
-              <p>Ask questions about your data in plain English</p>
-            </div>
-
-            <textarea
-              value={aiQuestion}
-              onChange={(e) => setAiQuestion(e.target.value)}
-              className="ai-input"
-              placeholder="What are the top 10 rows sorted by price?"
-              rows={4}
-            />
-
-            <div className="modal-footer">
-              <button onClick={() => setShowAIModal(false)} className="btn-secondary">
-                Cancel
-              </button>
-              <button
-                onClick={executeAIQuery}
-                className="btn-primary"
-                disabled={queryLoading || !aiQuestion.trim()}
-              >
-                {queryLoading ? "Thinking..." : "Ask AI"}
-              </button>
-            </div>
-
-            <div className="modal-examples">
-              <div className="examples-title">Example questions:</div>
-              <button
-                onClick={() => setAiQuestion("Show me the top 10 rows by revenue")}
-                className="example-btn"
-              >
-                Show me the top 10 rows by revenue
-              </button>
-              <button
-                onClick={() => setAiQuestion("What's the average value in the price column?")}
-                className="example-btn"
-              >
-                What's the average value in the price column?
-              </button>
-              <button
-                onClick={() => setAiQuestion("Group by category and count rows")}
-                className="example-btn"
-              >
-                Group by category and count rows
-              </button>
+              <div className="dataset-list">
+                {filteredDatasets.length === 0 ? (
+                  <div className="empty-state">
+                    <p>No datasets found</p>
+                    <button onClick={() => setShowDatasetPicker(false)} className="btn-primary">
+                      Upload Your First CSV
+                    </button>
+                  </div>
+                ) : (
+                  filteredDatasets.map((dataset) => (
+                    <div
+                      key={dataset.id}
+                      className={`dataset-item ${
+                        selectedDataset === dataset.id ? "dataset-item-selected" : ""
+                      }`}
+                    >
+                      <div className="dataset-info" onClick={() => {
+                        setSelectedDataset(dataset.id);
+                        setShowDatasetPicker(false);
+                      }}>
+                        <div className="dataset-name">{dataset.filename}</div>
+                        <div className="dataset-meta">
+                          {dataset.status === "ready" && dataset.row_count ? (
+                            <>
+                              {dataset.row_count.toLocaleString()} rows •{" "}
+                              {dataset.column_count} columns
+                            </>
+                          ) : dataset.status === "analyzing" ? (
+                            <span className="status-analyzing">⏳ Analyzing...</span>
+                          ) : dataset.status === "error" ? (
+                            <span className="status-error">❌ Error</span>
+                          ) : (
+                            <>~{dataset.estimated_rows.toLocaleString()} rows (estimated)</>
+                          )}
+                        </div>
+                        <div className="dataset-date">
+                          {new Date(dataset.uploaded_at).toLocaleString()}
+                        </div>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteDataset(dataset.id);
+                        }}
+                        className="btn-delete"
+                        title="Delete"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* SQL Modal */}
+        {showSQLModal && (
+          <div className="modal-overlay" onClick={() => setShowSQLModal(false)}>
+            <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>💻 SQL Query</h2>
+                <button onClick={() => setShowSQLModal(false)} className="modal-close">
+                  ✕
+                </button>
+              </div>
+
+              <textarea
+                value={sqlQuery}
+                onChange={(e) => setSqlQuery(e.target.value)}
+                className="sql-editor"
+                placeholder="SELECT * FROM data LIMIT 100"
+                rows={10}
+              />
+
+              <div className="modal-footer">
+                <button onClick={() => setShowSQLModal(false)} className="btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  onClick={executeSQLQuery}
+                  className="btn-primary"
+                  disabled={queryLoading}
+                >
+                  {queryLoading ? "Running..." : "Run Query"}
+                </button>
+              </div>
+
+              <div className="modal-hint">
+                💡 Use 'data' as the table name. Only SELECT queries allowed for security.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* AI Modal */}
+        {showAIModal && (
+          <div className="modal-overlay" onClick={() => setShowAIModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h2>🤖 AI Chat</h2>
+                <button onClick={() => setShowAIModal(false)} className="modal-close">
+                  ✕
+                </button>
+              </div>
+
+              <div className="ai-info">
+                <span className="ai-badge">Powered by GPT-4o-mini</span>
+                <p>Ask questions about your data in plain English</p>
+              </div>
+
+              <textarea
+                value={aiQuestion}
+                onChange={(e) => setAiQuestion(e.target.value)}
+                className="ai-input"
+                placeholder="What are the top 10 rows sorted by price?"
+                rows={4}
+              />
+
+              <div className="modal-footer">
+                <button onClick={() => setShowAIModal(false)} className="btn-secondary">
+                  Cancel
+                </button>
+                <button
+                  onClick={executeAIQuery}
+                  className="btn-primary"
+                  disabled={queryLoading || !aiQuestion.trim()}
+                >
+                  {queryLoading ? "Thinking..." : "Ask AI"}
+                </button>
+              </div>
+
+              <div className="modal-examples">
+                <div className="examples-title">Example questions:</div>
+                <button
+                  onClick={() => setAiQuestion("Show me the top 10 rows by revenue")}
+                  className="example-btn"
+                >
+                  Show me the top 10 rows by revenue
+                </button>
+                <button
+                  onClick={() => setAiQuestion("What's the average value in the price column?")}
+                  className="example-btn"
+                >
+                  What's the average value in the price column?
+                </button>
+                <button
+                  onClick={() => setAiQuestion("Group by category and count rows")}
+                  className="example-btn"
+                >
+                  Group by category and count rows
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </ErrorBoundary>
   );
 };
 
