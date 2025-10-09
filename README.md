@@ -22,7 +22,7 @@
 
 
 
-JetDB is a powerful full-stack application designed to handle massive datasets with the simplicity of a spreadsheet interface. Built for data analysts, scientists, and engineers who need Excel-like functionality for datasets that would make traditional spreadsheets crash.
+JetDB is a powerful full-stack application designed to handle massive datasets with the simplicity of a spreadsheet interface. Built for analysts, consultants, students, and everyday users who need Excel-like functionality for datasets that would make traditional spreadsheets crash.
 
 
 
