@@ -1,15 +1,16 @@
 """
-FILE 6: backend/main.py (v8.0.0 - WITH AUTHENTICATION)
-Integrated version with all new features + Supabase JWT auth
+JetDB Backend - Security Hardened NLQ Endpoint + Health Check + Request ID
+Drop this code into backend/main.py
+
+Requirements:
+pip install fastapi uvicorn anthropic duckdb supabase azure-storage-blob python-multipart
 """
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
-from supabase import create_client, Client
 import anthropic
 import duckdb
 import os
@@ -18,55 +19,24 @@ import time
 import logging
 from datetime import datetime
 import re
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Import new modules
-from error_handlers import (
-    jetdb_exception_handler,
-    generic_exception_handler,
-    JetDBException,
-    AuthenticationError,
-    NotFoundError,
-    ValidationError
-)
-from rate_limiter import limiter, rate_limit_exceeded_handler, UPLOAD_RATE_LIMIT, AI_QUERY_RATE_LIMIT, SQL_QUERY_RATE_LIMIT
-from state_endpoints import router as state_router
-import supabase_helpers
-from slowapi.errors import RateLimitExceeded
 
 # ============================================================================
-# APP INITIALIZATION
+# CONFIGURATION
 # ============================================================================
 
 app = FastAPI(title="JetDB API", version="8.0.0")
 
-# Add rate limiter to app state
-app.state.limiter = limiter
-
 # Logging setup
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - [%(request_id)s] - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
 # Environment variables
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
-
-# Initialize Supabase client for auth
-supabase: Client = create_client(
-    SUPABASE_URL if SUPABASE_URL else "",
-    SUPABASE_KEY if SUPABASE_KEY else ""
-)
-logger.info("✅ Supabase client initialized")
-
-# Security
-security = HTTPBearer()
 
 # NLQ Security Constants
 MAX_RESULT_ROWS = 10000
@@ -76,14 +46,6 @@ DANGEROUS_SQL_KEYWORDS = [
     "ALTER", "CREATE", "GRANT", "REVOKE", "EXECUTE",
     "PRAGMA", "ATTACH", "DETACH"
 ]
-
-# ============================================================================
-# EXCEPTION HANDLERS
-# ============================================================================
-
-app.add_exception_handler(JetDBException, jetdb_exception_handler)
-app.add_exception_handler(Exception, generic_exception_handler)
-app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 # ============================================================================
 # MIDDLEWARE - REQUEST ID TRACKING
@@ -135,49 +97,6 @@ app.add_middleware(
 )
 
 # ============================================================================
-# AUTHENTICATION
-# ============================================================================
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    """
-    Validate JWT token and return user info.
-    All protected endpoints use this dependency.
-    """
-    try:
-        token = credentials.credentials
-        
-        # Verify token with Supabase
-        user_response = supabase.auth.get_user(token)
-        
-        if not user_response or not user_response.user:
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid authentication token"
-            )
-        
-        user = user_response.user
-        logger.info(f"🔐 Authenticated user: {user.id}")
-        
-        return {
-            "id": user.id,
-            "email": user.email
-        }
-        
-    except Exception as e:
-        logger.error(f"Auth failed: {e}")
-        raise HTTPException(
-            status_code=401,
-            detail="Authentication failed. Please log in again."
-        )
-
-# ============================================================================
-# INCLUDE ROUTERS
-# ============================================================================
-
-# Include spreadsheet state endpoints
-app.include_router(state_router)
-
-# ============================================================================
 # HEALTH CHECK ENDPOINT
 # ============================================================================
 
@@ -194,14 +113,14 @@ async def health_check():
         "dependencies": {}
     }
     
-    # Check OpenAI API
+    # Check Anthropic API
     try:
-        if OPENAI_API_KEY:
-            health_status["dependencies"]["openai"] = "available"
+        if ANTHROPIC_API_KEY:
+            health_status["dependencies"]["anthropic"] = "available"
         else:
-            health_status["dependencies"]["openai"] = "not_configured"
+            health_status["dependencies"]["anthropic"] = "not_configured"
     except Exception as e:
-        health_status["dependencies"]["openai"] = f"error: {str(e)}"
+        health_status["dependencies"]["anthropic"] = f"error: {str(e)}"
         health_status["status"] = "degraded"
     
     # Check Supabase
@@ -240,6 +159,7 @@ def validate_sql_query(sql: str) -> tuple[bool, Optional[str]]:
     
     # Check for dangerous keywords
     for keyword in DANGEROUS_SQL_KEYWORDS:
+        # Use word boundaries to avoid false positives
         pattern = r'\b' + re.escape(keyword) + r'\b'
         if re.search(pattern, sql_upper):
             logger.warning(f"Blocked dangerous SQL keyword: {keyword} in query: {sql[:100]}")
@@ -253,28 +173,48 @@ def validate_sql_query(sql: str) -> tuple[bool, Optional[str]]:
     return True, None
 
 def get_dataset_schema(filepath: str, conn: duckdb.DuckDBPyConnection) -> Dict[str, Any]:
-    """Get dataset schema with column types and sample data"""
+    """
+    Get dataset schema with column types and sample data
+    Returns: {columns: [...], sample_rows: [...]}
+    """
     try:
+        # Get schema with types
         schema_query = f"DESCRIBE SELECT * FROM '{filepath}'"
         schema_result = conn.execute(schema_query).fetchall()
         
         columns = []
         for row in schema_result:
-            columns.append({"name": row[0], "type": row[1]})
+            columns.append({
+                "name": row[0],
+                "type": row[1]
+            })
         
+        # Get 3 sample rows for context
         sample_query = f"SELECT * FROM '{filepath}' LIMIT 3"
         sample_result = conn.execute(sample_query).fetchall()
         sample_rows = [list(row) for row in sample_result]
         
-        return {"columns": columns, "sample_rows": sample_rows, "row_count": len(sample_rows)}
+        return {
+            "columns": columns,
+            "sample_rows": sample_rows,
+            "row_count": len(sample_rows)
+        }
     except Exception as e:
         logger.error(f"Failed to get dataset schema: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to analyze dataset: {str(e)}")
 
 def generate_nlq_prompt(question: str, schema: Dict[str, Any]) -> str:
     """Generate enhanced Claude prompt with schema and safety rules"""
-    columns_desc = "\n".join([f"  - {col['name']} ({col['type']})" for col in schema['columns']])
-    sample_data = "\n".join([f"  Row {i+1}: {row}" for i, row in enumerate(schema['sample_rows'])])
+    
+    columns_desc = "\n".join([
+        f"  - {col['name']} ({col['type']})"
+        for col in schema['columns']
+    ])
+    
+    sample_data = "\n".join([
+        f"  Row {i+1}: {row}"
+        for i, row in enumerate(schema['sample_rows'])
+    ])
     
     prompt = f"""You are a SQL expert. Generate a DuckDB SQL query to answer the user's question.
 
@@ -298,7 +238,7 @@ def generate_nlq_prompt(question: str, schema: Dict[str, Any]) -> str:
     return prompt
 
 # ============================================================================
-# NLQ ENDPOINT - SECURITY HARDENED + AUTHENTICATED
+# NLQ ENDPOINT - SECURITY HARDENED
 # ============================================================================
 
 class NLQRequest(BaseModel):
@@ -313,87 +253,110 @@ class NLQResponse(BaseModel):
     execution_time_ms: float
 
 @app.post("/query/natural", response_model=NLQResponse)
-@limiter.limit(AI_QUERY_RATE_LIMIT)
-async def natural_language_query(
-    request: Request, 
-    nlq_request: NLQRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Natural Language Query endpoint with authentication and security"""
+async def natural_language_query(request: Request, nlq_request: NLQRequest):
+    """
+    Natural Language Query endpoint with comprehensive security hardening
+    
+    Security features:
+    - SQL injection protection (keyword blocking)
+    - SELECT-only query enforcement
+    - Query timeout protection (30s max)
+    - Result size limiting (10k rows max)
+    - Column type detection for better Claude responses
+    """
     request_id = request.state.request_id
     start_time = time.time()
-    user_id = current_user["id"]
     
-    logger.info(f"NLQ request: user={user_id}, dataset_id={nlq_request.dataset_id}, question={nlq_request.question}")
+    logger.info(f"NLQ request: dataset_id={nlq_request.dataset_id}, question={nlq_request.question}")
     
-    if not OPENAI_API_KEY:
-        raise HTTPException(status_code=500, detail="OpenAI API key not configured")
+    # Validate inputs
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(status_code=500, detail="Anthropic API key not configured")
     
-    # Get dataset from Supabase with ownership verification
-    dataset = await supabase_helpers.get_dataset(nlq_request.dataset_id, user_id)
-    if not dataset:
-        raise NotFoundError("DATASET_NOT_FOUND")
-    
-    filepath = dataset["blob_path"]  # Azure Blob path
+    # TODO: Get filepath from Supabase using dataset_id
+    # For now, this is a placeholder - integrate with your Supabase queries
+    filepath = f"/path/to/datasets/{nlq_request.dataset_id}.csv"
     
     try:
+        # Initialize DuckDB connection with timeout
         conn = duckdb.connect(":memory:")
         conn.execute(f"SET statement_timeout='{QUERY_TIMEOUT_SECONDS}s'")
         
+        # Get dataset schema with types
+        logger.info(f"Getting schema for dataset: {nlq_request.dataset_id}")
         schema = get_dataset_schema(filepath, conn)
+        
+        # Generate Claude prompt with schema
         prompt = generate_nlq_prompt(nlq_request.question, schema)
         
-        logger.info("Calling OpenAI API for SQL generation")
-        client = OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(
-            model="gpt-4",
-            messages=[
-                {"role": "system", "content": "You are a SQL expert. Generate ONLY the SQL query - no markdown, no explanation, no code blocks."},
-                {"role": "user", "content": prompt}
-            ],
+        # Call Claude API
+        logger.info("Calling Claude API for SQL generation")
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
             max_tokens=1024,
-            temperature=0
+            messages=[{
+                "role": "user",
+                "content": prompt
+            }]
         )
         
-        sql_query = response.choices[0].message.content.strip()
-        logger.info(f"OpenAI generated SQL: {sql_query}")
+        sql_query = message.content[0].text.strip()
+        logger.info(f"Claude generated SQL: {sql_query}")
         
+        # Validate SQL query for security
         is_valid, error_msg = validate_sql_query(sql_query)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_msg)
         
+        # Execute query with timeout protection
         try:
             logger.info("Executing SQL query")
             query_start = time.time()
             result = conn.execute(sql_query).fetchall()
             query_duration = (time.time() - query_start) * 1000
-            logger.info(f"Query executed: {len(result)} rows in {query_duration:.2f}ms")
+            
+            logger.info(f"Query executed successfully: {len(result)} rows in {query_duration:.2f}ms")
+            
         except Exception as e:
-            if "timeout" in str(e).lower():
+            error_str = str(e)
+            if "timeout" in error_str.lower():
                 raise HTTPException(
                     status_code=408,
-                    detail=f"Query timeout after {QUERY_TIMEOUT_SECONDS}s. Try adding filters or LIMIT."
+                    detail=f"Query timeout after {QUERY_TIMEOUT_SECONDS}s. "
+                           f"Try adding filters or LIMIT clause to your question."
                 )
-            raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Query execution failed: {error_str}")
         
+        # Get column names
         column_names = [desc[0] for desc in conn.description]
+        
+        # Apply result size limit
         truncated = len(result) > MAX_RESULT_ROWS
         if truncated:
             logger.warning(f"Results truncated: {len(result)} rows -> {MAX_RESULT_ROWS} rows")
             result = result[:MAX_RESULT_ROWS]
         
-        formatted_results = [dict(zip(column_names, row)) for row in result]
+        # Format results
+        formatted_results = []
+        for row in result:
+            formatted_results.append(dict(zip(column_names, row)))
+        
         conn.close()
         
         total_duration = (time.time() - start_time) * 1000
         
-        return NLQResponse(
+        response = NLQResponse(
             sql_query=sql_query,
             results=formatted_results,
             truncated=truncated,
             row_count=len(formatted_results),
             execution_time_ms=total_duration
         )
+        
+        logger.info(f"NLQ request completed successfully in {total_duration:.2f}ms")
+        
+        return response
         
     except HTTPException:
         raise
@@ -402,49 +365,19 @@ async def natural_language_query(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ============================================================================
-# UPLOAD ENDPOINT WITH RATE LIMITING + AUTHENTICATION
-# ============================================================================
-
-@app.post("/upload")
-@limiter.limit(UPLOAD_RATE_LIMIT)
-async def upload_file(
-    request: Request, 
-    file: UploadFile = File(...),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Upload CSV/Excel/Parquet file with rate limiting and authentication
-    Rate limit: 10 uploads per hour per user
-    """
-    user_id = current_user["id"]
-    logger.info(f"File upload: {file.filename} by user {user_id}")
-    
-    # TODO: Implement full upload logic with Supabase + Azure Blob
-    return {
-        "message": "Upload endpoint - integrate with Supabase helpers",
-        "user_id": user_id,
-        "filename": file.filename
-    }
-
-# ============================================================================
-# ROOT ENDPOINT
+# PLACEHOLDER ENDPOINTS (Add your existing endpoints here)
 # ============================================================================
 
 @app.get("/")
 async def root():
-    return {
-        "message": "JetDB API v8.0 - Production Ready with Authentication",
-        "status": "operational",
-        "features": [
-            "Supabase JWT Authentication",
-            "OpenAI GPT-4 Natural Language Queries",
-            "NLQ Security Hardening",
-            "Rate Limiting",
-            "Spreadsheet State Persistence",
-            "Error Handling",
-            "Request ID Tracking"
-        ]
-    }
+    return {"message": "JetDB API v8.0 - Security Hardened", "status": "operational"}
+
+# Add your other endpoints:
+# - /upload
+# - /datasets
+# - /datasets/{id}/rows
+# - /query/sql
+# - etc.
 
 if __name__ == "__main__":
     import uvicorn

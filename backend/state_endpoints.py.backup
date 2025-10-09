@@ -1,9 +1,9 @@
 # ============================================================================
-# FILE 4: backend/state_endpoints.py (SIMPLIFIED AUTH)
+# FILE 4: backend/state_endpoints.py
 # Spreadsheet state persistence endpoints
 # ============================================================================
 
-from fastapi import APIRouter, Request, HTTPException
+from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel
 from typing import Dict, Any, Optional
 import logging
@@ -26,6 +26,25 @@ router = APIRouter(prefix="/datasets", tags=["spreadsheet_state"])
 class SaveStateRequest(BaseModel):
     """Request model for saving spreadsheet state"""
     state_data: Dict[str, Any]
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "state_data": {
+                    "cells": {
+                        "A1": {"value": "Updated Value", "formula": None},
+                        "B2": {"value": 150, "formula": "=A1*2"}
+                    },
+                    "formatting": {
+                        "A1": {"bold": True, "color": "#FF0000"}
+                    },
+                    "columnWidths": {
+                        "A": 120,
+                        "B": 100
+                    }
+                }
+            }
+        }
 
 class StateResponse(BaseModel):
     """Response model for spreadsheet state"""
@@ -39,22 +58,25 @@ class StateMetadata(BaseModel):
     updated_at: Optional[str] = None
 
 # ============================================================================
-# HELPER TO GET USER ID FROM TOKEN
+# HELPER FUNCTIONS
 # ============================================================================
 
-def get_user_id_from_token(request: Request) -> str:
+def get_user_id(request: Request) -> str:
     """
-    Extract user ID from JWT token
-    For now, returns hardcoded test user
-    TODO: Implement proper JWT decoding
+    Extract user ID from authenticated request
+    TODO: Implement actual auth token parsing
     """
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing authorization header")
+    # For now, this is a placeholder
+    # In production, you'd extract this from JWT token
+    user_id = getattr(request.state, "user_id", None)
     
-    # TODO: Decode JWT and extract user_id
-    # For now, return test user ID
-    return "bb98228c-2266-4510-91ad-d81fcbc74b93"
+    if not user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="Authentication required"
+        )
+    
+    return user_id
 
 # ============================================================================
 # ENDPOINTS
@@ -66,12 +88,42 @@ async def save_state(
     request: Request,
     body: SaveStateRequest
 ):
-    """Save spreadsheet state (cell edits, formulas, formatting)"""
+    """
+    Save spreadsheet state (cell edits, formulas, formatting)
+    
+    **Rate Limit:** 100 saves per hour per user
+    **Auth Required:** Yes
+    
+    **Request Body:**
+    ```json
+    {
+        "state_data": {
+            "cells": {...},
+            "formatting": {...},
+            "columnWidths": {...}
+        }
+    }
+    ```
+    
+    **Response:**
+    - 200: State saved successfully
+    - 401: Authentication required
+    - 403: User doesn't own dataset
+    - 404: Dataset not found
+    - 500: Database error
+    """
     try:
-        user_id = get_user_id_from_token(request)
+        user_id = get_user_id(request)
         request_id = getattr(request.state, "request_id", "unknown")
         
-        logger.info(f"Saving spreadsheet state for dataset {dataset_id}")
+        logger.info(
+            f"Saving spreadsheet state for dataset {dataset_id}",
+            extra={
+                "request_id": request_id,
+                "user_id": user_id,
+                "dataset_id": dataset_id
+            }
+        )
         
         # Save state
         result = await save_spreadsheet_state(
@@ -98,12 +150,30 @@ async def load_state(
     dataset_id: str,
     request: Request
 ):
-    """Load spreadsheet state for a dataset"""
+    """
+    Load spreadsheet state for a dataset
+    
+    **Auth Required:** Yes
+    
+    **Response:**
+    - 200: State loaded successfully
+    - 401: Authentication required
+    - 403: User doesn't own dataset
+    - 404: No saved state found
+    - 500: Database error
+    """
     try:
-        user_id = get_user_id_from_token(request)
+        user_id = get_user_id(request)
         request_id = getattr(request.state, "request_id", "unknown")
         
-        logger.info(f"Loading spreadsheet state for dataset {dataset_id}")
+        logger.info(
+            f"Loading spreadsheet state for dataset {dataset_id}",
+            extra={
+                "request_id": request_id,
+                "user_id": user_id,
+                "dataset_id": dataset_id
+            }
+        )
         
         # Verify ownership first
         has_access = await verify_dataset_ownership(dataset_id, user_id)
@@ -117,7 +187,7 @@ async def load_state(
         )
         
         if not result:
-            raise HTTPException(status_code=404, detail="No saved state found")
+            raise NotFoundError("STATE_NOT_FOUND")
         
         return StateResponse(
             dataset_id=dataset_id,
@@ -126,8 +196,6 @@ async def load_state(
         )
         
     except (AuthorizationError, NotFoundError):
-        raise
-    except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error loading state: {str(e)}")
@@ -138,12 +206,30 @@ async def clear_state(
     dataset_id: str,
     request: Request
 ):
-    """Clear spreadsheet state (reset to original CSV data)"""
+    """
+    Clear spreadsheet state (reset to original CSV data)
+    
+    **Auth Required:** Yes
+    
+    **Response:**
+    - 200: State cleared successfully
+    - 401: Authentication required
+    - 403: User doesn't own dataset
+    - 404: No saved state found
+    - 500: Database error
+    """
     try:
-        user_id = get_user_id_from_token(request)
+        user_id = get_user_id(request)
         request_id = getattr(request.state, "request_id", "unknown")
         
-        logger.info(f"Clearing spreadsheet state for dataset {dataset_id}")
+        logger.info(
+            f"Clearing spreadsheet state for dataset {dataset_id}",
+            extra={
+                "request_id": request_id,
+                "user_id": user_id,
+                "dataset_id": dataset_id
+            }
+        )
         
         # Clear state
         cleared = await clear_spreadsheet_state(
@@ -171,9 +257,18 @@ async def get_state_metadata(
     dataset_id: str,
     request: Request
 ):
-    """Check if a dataset has saved state"""
+    """
+    Check if a dataset has saved state (without loading the full state)
+    
+    **Auth Required:** Yes
+    
+    **Response:**
+    - 200: Metadata returned
+    - 401: Authentication required
+    - 403: User doesn't own dataset
+    """
     try:
-        user_id = get_user_id_from_token(request)
+        user_id = get_user_id(request)
         
         # Verify ownership
         has_access = await verify_dataset_ownership(dataset_id, user_id)
