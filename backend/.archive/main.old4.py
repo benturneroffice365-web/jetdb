@@ -506,19 +506,15 @@ async def natural_language_query(nlq: NaturalLanguageQuery):
             logger.warning(f"Blocked unsafe SQL: {sql_query}. Reason: {error_msg}")
             raise HTTPException(status_code=400, detail=f"Security violation: {error_msg}")
         
-        logger.info(f"SQL validation passed, proceeding to execute")
-        
-        # STEP 5: Execute query
+        # STEP 5: Set timeout and execute
         try:
-            logger.info(f"Creating DuckDB view for file: {file_path}")
+            conn.execute(f"SET statement_timeout='{QUERY_TIMEOUT_SECONDS}s'")
+            
             # Create view for easier querying
             conn.execute(f"CREATE VIEW data AS SELECT * FROM '{file_path}'")
-            logger.info(f"View created successfully")
             
             # Execute query
-            logger.info(f"ABOUT TO EXECUTE: {sql_query}")
             result = conn.execute(sql_query).fetchdf()
-            logger.info(f"EXECUTION COMPLETE - got {len(result)} rows")
             
             # STEP 6: Limit results
             truncated = len(result) > MAX_RESULT_ROWS

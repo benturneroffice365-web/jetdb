@@ -372,7 +372,7 @@ const App: React.FC = () => {
         ],
       });
 
-      toast.success(`Query returned ${data.rows} rows in ${data.query_time_seconds}s`);
+      toast.success(`Query returned ${data.rows_returned} rows`);
       setShowSQLModal(false);
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Query failed");
@@ -450,9 +450,9 @@ const App: React.FC = () => {
 
       toast.success(
         <div>
-          <div>✨ {data.rows} rows in {data.query_time_seconds}s</div>
+          <div>✨ {data.rows_returned} rows in {data.execution_time_seconds}s</div>
           <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
-            SQL: {data.generated_sql}
+            SQL: {data.sql_query}
           </div>
         </div>,
         { duration: 6000 }
@@ -571,9 +571,9 @@ const App: React.FC = () => {
             {currentDataset && (
               <span className="current-file">
                 {currentDataset.filename}
-                {currentDataset.row_count && (
+                {(currentDataset.row_count || currentDataset.estimated_rows) && (
                   <span className="row-count">
-                    {currentDataset.row_count.toLocaleString()} rows
+                    {(currentDataset.row_count || currentDataset.estimated_rows || 0).toLocaleString()} rows
                   </span>
                 )}
               </span>
@@ -682,7 +682,7 @@ const App: React.FC = () => {
                         <div className="dataset-meta">
                           {dataset.status === "ready" && dataset.row_count ? (
                             <>
-                              {dataset.row_count.toLocaleString()} rows •{" "}
+                              {(dataset.row_count || 0).toLocaleString()} rows •{" "}
                               {dataset.column_count} columns
                             </>
                           ) : dataset.status === "analyzing" ? (
@@ -690,7 +690,7 @@ const App: React.FC = () => {
                           ) : dataset.status === "error" ? (
                             <span className="status-error">❌ Error</span>
                           ) : (
-                            <>~{dataset.estimated_rows.toLocaleString()} rows (estimated)</>
+                            <>~{(dataset.estimated_rows || 0).toLocaleString()} rows (estimated)</>
                           )}
                         </div>
                         <div className="dataset-date">
