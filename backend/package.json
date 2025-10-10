@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "jquery-mousewheel": "^3.2.2"
+  }
+}

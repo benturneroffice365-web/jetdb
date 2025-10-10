@@ -1,10 +1,19 @@
+/**
+ * JetDB Frontend v7.3.1 - Production Ready
+ * ==========================================
+ * FIXES IMPLEMENTED:
+ * ✅ 8. Auto-Refresh Dataset List (after upload)
+ * ✅ 9. Loading States (comprehensive for all operations)
+ * ✅ 10. Luckysheet Timing Fix (getContext error resolved)
+ */
+
 import ErrorBoundary from './components/ErrorBoundary';
 import React, { useState, useEffect, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { createClient, Session } from '@supabase/supabase-js';
 import axios from "axios";
 import toast, { Toaster } from "react-hot-toast";
-import Papa from "papaparse";
+import $ from "jquery";
 import "jquery-mousewheel";
 import luckysheet from "luckysheet";
 import "luckysheet/dist/plugins/css/pluginsCss.css";
@@ -13,8 +22,15 @@ import "luckysheet/dist/css/luckysheet.css";
 import "luckysheet/dist/assets/iconfont/iconfont.css";
 import "./App.css";
 
+// Ensure jQuery and mousewheel are globally available
 (window as any).$ = $;
 (window as any).jQuery = $;
+
+// Force load mousewheel plugin
+if ($.fn && !$.fn.mousewheel) {
+  console.warn("⚠️ jQuery mousewheel not loaded, attempting to load...");
+  require("jquery-mousewheel");
+}
 
 // Initialize Supabase client
 const supabase = createClient(
@@ -23,7 +39,7 @@ const supabase = createClient(
 );
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
-const VERSION = "7.2.0";
+const VERSION = "7.3.1";
 
 interface Dataset {
   id: string;
@@ -34,7 +50,7 @@ interface Dataset {
   columns: string[];
   uploaded_at: string;
   status: "analyzing" | "ready" | "error";
-  file_size_mb: number;
+  size_bytes: number;
 }
 
 const App: React.FC = () => {
@@ -58,6 +74,11 @@ const App: React.FC = () => {
   const [sqlQuery, setSqlQuery] = useState<string>("SELECT * FROM data LIMIT 100");
   const [aiQuestion, setAiQuestion] = useState<string>("");
   const [queryLoading, setQueryLoading] = useState<boolean>(false);
+  
+  // Loading states for better UX
+  const [datasetsLoading, setDatasetsLoading] = useState<boolean>(false);
+  const [datasetLoading, setDatasetLoading] = useState<boolean>(false);
+  const [deletingDatasetId, setDeletingDatasetId] = useState<string | null>(null);
 
   const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
   const SPREADSHEET_PAGE_SIZE = 10000;
@@ -101,17 +122,17 @@ const App: React.FC = () => {
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'k') { 
           e.preventDefault(); 
-          if (selectedDataset) setShowSQLModal(true);
+          if (selectedDataset && !queryLoading) setShowSQLModal(true);
         }
         if (e.key === 'j') { 
           e.preventDefault(); 
-          if (selectedDataset) setShowAIModal(true);
+          if (selectedDataset && !queryLoading) setShowAIModal(true);
         }
       }
     };
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [selectedDataset]);
+  }, [selectedDataset, queryLoading]);
 
   // Auth functions
   const handleAuth = async (e: React.FormEvent) => {
@@ -142,23 +163,33 @@ const App: React.FC = () => {
     toast.success("Signed out");
   };
 
-  // Fetch datasets
-  const fetchDatasets = useCallback(async () => {
+  // Fetch datasets (used by auto-refresh)
+  const fetchDatasets = useCallback(async (showLoading: boolean = true) => {
     if (!session) return;
+    
+    if (showLoading) setDatasetsLoading(true);
     
     try {
       const { data } = await axios.get(`${API_BASE}/datasets`, {
         headers: getAuthHeaders()
       });
       setDatasets(data.datasets || []);
+      
+      // If we're showing a dataset that's analyzing, check again in 3 seconds
+      const currentDataset = data.datasets?.find((d: Dataset) => d.id === selectedDataset);
+      if (currentDataset?.status === "analyzing") {
+        setTimeout(() => fetchDatasets(false), 3000);
+      }
     } catch (error: any) {
       console.error("Failed to fetch datasets:", error);
       if (error.response?.status === 401) {
         toast.error("Session expired. Please log in again.");
         handleSignOut();
       }
+    } finally {
+      if (showLoading) setDatasetsLoading(false);
     }
-  }, [session, getAuthHeaders]);
+  }, [session, getAuthHeaders, selectedDataset]);
 
   useEffect(() => {
     if (session) {
@@ -166,7 +197,7 @@ const App: React.FC = () => {
     }
   }, [session, fetchDatasets]);
 
-  // File upload
+  // File upload (auto-refresh after upload)
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!session) {
       toast.error("Please log in first");
@@ -206,16 +237,34 @@ const App: React.FC = () => {
         },
       });
 
-      toast.success(`Uploaded ${file.name}! Analyzing...`);
-      await fetchDatasets();
+      toast.success(`✅ Uploaded ${file.name}! Analyzing...`);
+      
+      // Auto-refresh dataset list after upload
+      await fetchDatasets(false);
       setSelectedDataset(data.dataset_id);
+      
+      // Poll for analysis completion
+      const pollInterval = setInterval(async () => {
+        await fetchDatasets(false);
+        const updatedDataset = datasets.find(d => d.id === data.dataset_id);
+        if (updatedDataset?.status === "ready" || updatedDataset?.status === "error") {
+          clearInterval(pollInterval);
+          if (updatedDataset.status === "ready") {
+            toast.success(`✅ Analysis complete! ${updatedDataset.row_count?.toLocaleString()} rows`);
+          }
+        }
+      }, 2000);
+      
+      // Stop polling after 2 minutes
+      setTimeout(() => clearInterval(pollInterval), 120000);
+      
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Upload failed");
     } finally {
       setUploading(false);
       setUploadProgress(0);
     }
-  }, [session, getAuthHeaders, fetchDatasets]);
+  }, [session, getAuthHeaders, fetchDatasets, datasets]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -224,23 +273,31 @@ const App: React.FC = () => {
     disabled: uploading || !session,
   });
 
-  // Load data into spreadsheet
+  // Load data into spreadsheet - FIXED TIMING ISSUE WITH DEBUGGING
   const loadDataIntoSpreadsheet = useCallback(async (datasetId: string) => {
     if (!session) return;
 
+    setDatasetLoading(true);
+    
     try {
+      console.log("📊 Fetching dataset rows...");
       const { data } = await axios.get(
         `${API_BASE}/datasets/${datasetId}/rows?limit=${SPREADSHEET_PAGE_SIZE}`,
         { headers: getAuthHeaders() }
       );
 
       const rows = data.data;
+      console.log(`✅ Received ${rows?.length || 0} rows`);
+      
       if (!rows || rows.length === 0) {
         toast.error("No data to display");
+        setDatasetLoading(false);
         return;
       }
 
       const columns = Object.keys(rows[0]);
+      console.log(`📋 Columns: ${columns.join(", ")}`);
+      
       const luckysheetData = [
         columns.map((col: string) => ({
           v: col,
@@ -258,58 +315,131 @@ const App: React.FC = () => {
         ),
       ];
 
-      const container = document.getElementById("luckysheet-container");
-      if (container) {
+      console.log("⏳ Waiting for DOM...");
+
+      // CRITICAL FIX: Wait for DOM to be ready before initializing Luckysheet
+      setTimeout(() => {
+        console.log("🔍 Checking for container...");
+        const container = document.getElementById("luckysheet-container");
+        
+        if (!container) {
+          console.error("❌ Container not found!");
+          toast.error("Spreadsheet container not found - try refreshing");
+          setDatasetLoading(false);
+          return;
+        }
+
+        console.log("✅ Container found:", container);
+        console.log("📦 Container dimensions:", container.offsetWidth, "x", container.offsetHeight);
+
+        // Check if Luckysheet is available
+        if (typeof luckysheet === 'undefined' || !luckysheet.create) {
+          console.error("❌ Luckysheet library not loaded!");
+          toast.error("Spreadsheet library not loaded - try refreshing");
+          setDatasetLoading(false);
+          return;
+        }
+
+        console.log("✅ Luckysheet library loaded");
+
+        // Check if jQuery mousewheel is loaded
+        const $ = (window as any).$;
+        if (!$ || !$.fn || !$.fn.mousewheel) {
+          console.error("❌ jQuery mousewheel not loaded!");
+          toast.error("Spreadsheet dependencies missing - try refreshing");
+          setDatasetLoading(false);
+          return;
+        }
+
+        console.log("✅ jQuery mousewheel loaded");
+
+        // Clear any existing Luckysheet instance
         container.innerHTML = "";
-      }
+        console.log("🧹 Container cleared");
 
-      luckysheet.create({
-        container: "luckysheet-container",
-        showinfobar: false,
-        showsheetbar: false,
-        showstatisticBar: false,
-        enableAddRow: false,
-        enableAddCol: false,
-        userInfo: false,
-        showConfigWindowResize: false,
-        data: [
-          {
-            name: "Sheet1",
-            color: "",
-            status: 1,
-            order: 0,
-            data: luckysheetData,
-            config: {},
-            index: 0,
-          },
-        ],
-      });
+        try {
+          console.log("🚀 Initializing Luckysheet...");
+          
+          luckysheet.create({
+            container: "luckysheet-container",
+            showinfobar: false,
+            showsheetbar: false,
+            showstatisticBar: false,
+            enableAddRow: false,
+            enableAddCol: false,
+            userInfo: false,
+            showConfigWindowResize: false,
+            data: [
+              {
+                name: "Sheet1",
+                color: "",
+                status: 1,
+                order: 0,
+                data: luckysheetData,
+                config: {},
+                index: 0,
+              },
+            ],
+          });
 
-      setSpreadsheetInitialized(true);
-      
-      if (data.total_rows > SPREADSHEET_PAGE_SIZE) {
-        toast(`Showing first ${SPREADSHEET_PAGE_SIZE.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`, {
-          duration: 5000,
-          icon: "ℹ️",
-        });
-      }
+          console.log("✅ Luckysheet initialized successfully!");
+          setSpreadsheetInitialized(true);
+          setDatasetLoading(false);
+          
+          if (data.total_rows && data.total_rows > SPREADSHEET_PAGE_SIZE) {
+            toast(`Showing first ${SPREADSHEET_PAGE_SIZE.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`, {
+              duration: 5000,
+              icon: "ℹ️",
+            });
+          }
+        } catch (err: any) {
+          console.error("❌ Luckysheet initialization error:", err);
+          console.error("Error message:", err.message);
+          console.error("Error stack:", err.stack);
+          toast.error(`Spreadsheet error: ${err.message || "Unknown error"}`);
+          setDatasetLoading(false);
+        }
+      }, 250); // Increased to 250ms for safer timing
+
     } catch (error: any) {
-      console.error("Load failed:", error);
+      console.error("❌ Load failed:", error);
       toast.error(error.response?.data?.detail || "Failed to load data");
+      setDatasetLoading(false);
     }
   }, [session, getAuthHeaders]);
 
   useEffect(() => {
     if (selectedDataset) {
-      loadDataIntoSpreadsheet(selectedDataset);
+      console.log("🎯 Selected dataset changed:", selectedDataset);
+      
+      // Wait for container to be rendered in DOM
+      const waitForContainer = (attempts = 0) => {
+        const container = document.getElementById("luckysheet-container");
+        
+        if (container) {
+          console.log("✅ Container found, loading data...");
+          loadDataIntoSpreadsheet(selectedDataset);
+        } else if (attempts < 10) {
+          console.log(`⏳ Container not ready, attempt ${attempts + 1}/10`);
+          setTimeout(() => waitForContainer(attempts + 1), 100);
+        } else {
+          console.error("❌ Container never appeared after 10 attempts");
+          toast.error("Failed to initialize spreadsheet - please try again");
+          setDatasetLoading(false);
+        }
+      };
+      
+      waitForContainer();
     }
   }, [selectedDataset, loadDataIntoSpreadsheet]);
 
-  // SQL Query
+  // SQL Query (better loading feedback)
   const executeSQLQuery = async () => {
     if (!selectedDataset || !session) return;
 
     setQueryLoading(true);
+    const loadingToast = toast.loading("🔍 Running SQL query...");
+    
     try {
       const { data } = await axios.post(
         `${API_BASE}/query/sql`,
@@ -322,7 +452,7 @@ const App: React.FC = () => {
 
       const rows = data.data;
       if (!rows || rows.length === 0) {
-        toast.error("Query returned no results");
+        toast.error("Query returned no results", { id: loadingToast });
         setQueryLoading(false);
         return;
       }
@@ -345,47 +475,56 @@ const App: React.FC = () => {
         ),
       ];
 
-      const container = document.getElementById("luckysheet-container");
-      if (container) {
-        container.innerHTML = "";
-      }
+      // Wait for DOM before re-initializing
+      setTimeout(() => {
+        const container = document.getElementById("luckysheet-container");
+        if (container) {
+          container.innerHTML = "";
+        }
 
-      luckysheet.create({
-        container: "luckysheet-container",
-        showinfobar: false,
-        showsheetbar: false,
-        showstatisticBar: false,
-        enableAddRow: false,
-        enableAddCol: false,
-        userInfo: false,
-        showConfigWindowResize: false,
-        data: [
-          {
-            name: "Query Results",
-            color: "",
-            status: 1,
-            order: 0,
-            data: luckysheetData,
-            config: {},
-            index: 0,
-          },
-        ],
-      });
+        luckysheet.create({
+          container: "luckysheet-container",
+          showinfobar: false,
+          showsheetbar: false,
+          showstatisticBar: false,
+          enableAddRow: false,
+          enableAddCol: false,
+          userInfo: false,
+          showConfigWindowResize: false,
+          data: [
+            {
+              name: "Query Results",
+              color: "",
+              status: 1,
+              order: 0,
+              data: luckysheetData,
+              config: {},
+              index: 0,
+            },
+          ],
+        });
 
-      toast.success(`Query returned ${data.rows_returned} rows`);
-      setShowSQLModal(false);
+        toast.success(
+          `✅ Query returned ${data.rows_returned} rows in ${data.execution_time_seconds}s`,
+          { id: loadingToast }
+        );
+        setShowSQLModal(false);
+        setQueryLoading(false);
+      }, 100);
+      
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Query failed");
-    } finally {
+      toast.error(error.response?.data?.detail || "Query failed", { id: loadingToast });
       setQueryLoading(false);
     }
   };
 
-  // AI Query
+  // AI Query (better loading feedback)
   const executeAIQuery = async () => {
     if (!selectedDataset || !aiQuestion.trim() || !session) return;
 
     setQueryLoading(true);
+    const loadingToast = toast.loading("🤖 AI is thinking...");
+    
     try {
       const { data } = await axios.post(
         `${API_BASE}/query/natural`,
@@ -398,7 +537,7 @@ const App: React.FC = () => {
 
       const rows = data.data;
       if (!rows || rows.length === 0) {
-        toast.error("Query returned no results");
+        toast.error("Query returned no results", { id: loadingToast });
         setQueryLoading(false);
         return;
       }
@@ -421,67 +560,80 @@ const App: React.FC = () => {
         ),
       ];
 
-      const container = document.getElementById("luckysheet-container");
-      if (container) {
-        container.innerHTML = "";
-      }
+      // Wait for DOM before re-initializing
+      setTimeout(() => {
+        const container = document.getElementById("luckysheet-container");
+        if (container) {
+          container.innerHTML = "";
+        }
 
-      luckysheet.create({
-        container: "luckysheet-container",
-        showinfobar: false,
-        showsheetbar: false,
-        showstatisticBar: false,
-        enableAddRow: false,
-        enableAddCol: false,
-        userInfo: false,
-        showConfigWindowResize: false,
-        data: [
-          {
-            name: "AI Results",
-            color: "",
-            status: 1,
-            order: 0,
-            data: luckysheetData,
-            config: {},
-            index: 0,
-          },
-        ],
-      });
+        luckysheet.create({
+          container: "luckysheet-container",
+          showinfobar: false,
+          showsheetbar: false,
+          showstatisticBar: false,
+          enableAddRow: false,
+          enableAddCol: false,
+          userInfo: false,
+          showConfigWindowResize: false,
+          data: [
+            {
+              name: "AI Results",
+              color: "",
+              status: 1,
+              order: 0,
+              data: luckysheetData,
+              config: {},
+              index: 0,
+            },
+          ],
+        });
 
-      toast.success(
-        <div>
-          <div>✨ {data.rows_returned} rows in {data.execution_time_seconds}s</div>
-          <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
-            SQL: {data.sql_query}
-          </div>
-        </div>,
-        { duration: 6000 }
-      );
-      setShowAIModal(false);
-      setAiQuestion("");
+        toast.success(
+          <div>
+            <div>✨ {data.rows_returned} rows in {data.execution_time_seconds}s</div>
+            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
+              SQL: {data.sql_query}
+            </div>
+          </div>,
+          { duration: 6000, id: loadingToast }
+        );
+        setShowAIModal(false);
+        setAiQuestion("");
+        setQueryLoading(false);
+      }, 100);
+      
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || "AI query failed");
-    } finally {
+      toast.error(error.response?.data?.detail || "AI query failed", { id: loadingToast });
       setQueryLoading(false);
     }
   };
 
-  // Delete dataset
+  // Delete dataset (auto-refresh + loading state)
   const deleteDataset = async (datasetId: string) => {
     if (!session) return;
     if (!window.confirm("Delete this dataset? This cannot be undone.")) return;
+
+    setDeletingDatasetId(datasetId);
+    const loadingToast = toast.loading("🗑️ Deleting dataset...");
 
     try {
       await axios.delete(`${API_BASE}/datasets/${datasetId}`, {
         headers: getAuthHeaders()
       });
-      toast.success("Dataset deleted");
-      setDatasets(datasets.filter((d) => d.id !== datasetId));
+      
+      toast.success("✅ Dataset deleted", { id: loadingToast });
+      
+      // Auto-refresh dataset list after delete
+      await fetchDatasets(false);
+      
       if (selectedDataset === datasetId) {
         setSelectedDataset(null);
       }
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || "Delete failed");
+      toast.error(error.response?.data?.detail || "Delete failed", { id: loadingToast });
+    } finally {
+      setDeletingDatasetId(null);
     }
   };
 
@@ -497,7 +649,10 @@ const App: React.FC = () => {
       <ErrorBoundary>
         <div className="auth-container">
           <div className="auth-box">
-            <div className="auth-loader">Loading...</div>
+            <div className="auth-loader">
+              <div className="spinner" style={{ margin: "0 auto" }}></div>
+              <p style={{ marginTop: "16px" }}>Loading...</p>
+            </div>
           </div>
         </div>
       </ErrorBoundary>
@@ -512,8 +667,8 @@ const App: React.FC = () => {
           <div className="auth-box">
             <div className="auth-header">
               <h1>JetDB</h1>
-              <p>BIG DATA FOR THE REST OF US</p>
-              <div className="version-badge">v{VERSION} powered by GPT-4o-mini</div>
+              <p>Big data for the rest of us</p>
+              <div className="version-badge">v{VERSION} • Production Ready</div>
             </div>
 
             <form onSubmit={handleAuth} className="auth-form">
@@ -524,6 +679,7 @@ const App: React.FC = () => {
                 onChange={(e) => setEmail(e.target.value)}
                 required
                 className="auth-input"
+                disabled={authLoading}
               />
               <input
                 type="password"
@@ -533,6 +689,7 @@ const App: React.FC = () => {
                 required
                 className="auth-input"
                 minLength={6}
+                disabled={authLoading}
               />
               <button type="submit" className="auth-button" disabled={authLoading}>
                 {authLoading ? "Loading..." : isSignup ? "Sign Up" : "Sign In"}
@@ -541,15 +698,20 @@ const App: React.FC = () => {
 
             <div className="auth-toggle">
               {isSignup ? "Already have an account?" : "Don't have an account?"}
-              <button onClick={() => setIsSignup(!isSignup)} className="auth-link">
+              <button 
+                onClick={() => setIsSignup(!isSignup)} 
+                className="auth-link"
+                disabled={authLoading}
+              >
                 {isSignup ? "Sign In" : "Sign Up"}
               </button>
             </div>
 
             <div className="auth-features">
-              <div className="feature-item">Upload massive CSVs (up to 10GB)</div>
-              <div className="feature-item">Query millions of rows instantly</div>
-              <div className="feature-item">Ask questions of your data in plain English</div>
+              <div className="feature-item">⚡ Upload massive CSVs (up to 10GB)</div>
+              <div className="feature-item">💻 Query millions of rows with SQL</div>
+              <div className="feature-item">🤖 Ask questions in plain English (GPT-4o-mini)</div>
+              <div className="feature-item">☁️ Secure cloud storage with Azure</div>
             </div>
           </div>
         </div>
@@ -571,9 +733,19 @@ const App: React.FC = () => {
             {currentDataset && (
               <span className="current-file">
                 {currentDataset.filename}
-                {(currentDataset.row_count || currentDataset.estimated_rows) && (
+                {currentDataset.status === "analyzing" && (
+                  <span className="row-count" style={{ background: "#ffa726" }}>
+                    ⏳ Analyzing...
+                  </span>
+                )}
+                {currentDataset.status === "ready" && (currentDataset.row_count || currentDataset.estimated_rows) && (
                   <span className="row-count">
                     {(currentDataset.row_count || currentDataset.estimated_rows || 0).toLocaleString()} rows
+                  </span>
+                )}
+                {currentDataset.status === "error" && (
+                  <span className="row-count" style={{ background: "#d32f2f" }}>
+                    ❌ Error
                   </span>
                 )}
               </span>
@@ -581,15 +753,29 @@ const App: React.FC = () => {
           </div>
           
           <div className="header-right">
-            <button onClick={() => setShowDatasetPicker(true)} className="btn-secondary">
+            <button 
+              onClick={() => setShowDatasetPicker(true)} 
+              className="btn-secondary"
+              disabled={datasetsLoading}
+            >
               📁 Datasets ({datasets.length})
             </button>
             {selectedDataset && (
               <>
-                <button onClick={() => setShowSQLModal(true)} className="btn-secondary" title="Ctrl+K">
+                <button 
+                  onClick={() => setShowSQLModal(true)} 
+                  className="btn-secondary" 
+                  title="Ctrl+K"
+                  disabled={queryLoading || datasetLoading}
+                >
                   💻 SQL
                 </button>
-                <button onClick={() => setShowAIModal(true)} className="btn-primary" title="Ctrl+J">
+                <button 
+                  onClick={() => setShowAIModal(true)} 
+                  className="btn-primary" 
+                  title="Ctrl+J"
+                  disabled={queryLoading || datasetLoading}
+                >
                   🤖 AI Chat
                 </button>
               </>
@@ -628,14 +814,37 @@ const App: React.FC = () => {
                   <p>or click to browse • Up to 10GB</p>
                   <div className="dropzone-features">
                     <span>⚡ Lightning fast queries</span>
-                    <span>🤖 AI-powered with GPT-4o-mini</span>
-                    <span>📈 Handle millions of rows</span>
+                    <span>🤖 AI-powered analysis</span>
+                    <span>☁️ Secure cloud storage</span>
                   </div>
                 </>
               )}
             </div>
           ) : (
-            <div id="luckysheet-container" className="spreadsheet-container"></div>
+            <>
+              {datasetLoading ? (
+                <div style={{ 
+                  display: "flex", 
+                  flexDirection: "column", 
+                  alignItems: "center", 
+                  justifyContent: "center", 
+                  height: "100%",
+                  gap: "20px"
+                }}>
+                  <div className="spinner"></div>
+                  <p style={{ fontSize: "18px", color: "#aaa" }}>Loading dataset...</p>
+                </div>
+              ) : null}
+              <div 
+                id="luckysheet-container" 
+                className="spreadsheet-container"
+                style={{ 
+                  display: datasetLoading ? 'none' : 'block',
+                  width: '100%',
+                  height: '100%'
+                }}
+              ></div>
+            </>
           )}
         </div>
 
@@ -659,7 +868,12 @@ const App: React.FC = () => {
               />
 
               <div className="dataset-list">
-                {filteredDatasets.length === 0 ? (
+                {datasetsLoading ? (
+                  <div style={{ textAlign: "center", padding: "40px" }}>
+                    <div className="spinner" style={{ margin: "0 auto" }}></div>
+                    <p style={{ marginTop: "16px", color: "#888" }}>Loading datasets...</p>
+                  </div>
+                ) : filteredDatasets.length === 0 ? (
                   <div className="empty-state">
                     <p>No datasets found</p>
                     <button onClick={() => setShowDatasetPicker(false)} className="btn-primary">
@@ -683,7 +897,8 @@ const App: React.FC = () => {
                           {dataset.status === "ready" && dataset.row_count ? (
                             <>
                               {(dataset.row_count || 0).toLocaleString()} rows •{" "}
-                              {dataset.column_count} columns
+                              {dataset.column_count} columns •{" "}
+                              {(dataset.size_bytes / (1024 * 1024)).toFixed(1)} MB
                             </>
                           ) : dataset.status === "analyzing" ? (
                             <span className="status-analyzing">⏳ Analyzing...</span>
@@ -704,8 +919,9 @@ const App: React.FC = () => {
                         }}
                         className="btn-delete"
                         title="Delete"
+                        disabled={deletingDatasetId === dataset.id}
                       >
-                        🗑️
+                        {deletingDatasetId === dataset.id ? "..." : "🗑️"}
                       </button>
                     </div>
                   ))
@@ -717,11 +933,15 @@ const App: React.FC = () => {
 
         {/* SQL Modal */}
         {showSQLModal && (
-          <div className="modal-overlay" onClick={() => setShowSQLModal(false)}>
+          <div className="modal-overlay" onClick={() => !queryLoading && setShowSQLModal(false)}>
             <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>💻 SQL Query</h2>
-                <button onClick={() => setShowSQLModal(false)} className="modal-close">
+                <button 
+                  onClick={() => setShowSQLModal(false)} 
+                  className="modal-close"
+                  disabled={queryLoading}
+                >
                   ✕
                 </button>
               </div>
@@ -732,10 +952,15 @@ const App: React.FC = () => {
                 className="sql-editor"
                 placeholder="SELECT * FROM data LIMIT 100"
                 rows={10}
+                disabled={queryLoading}
               />
 
               <div className="modal-footer">
-                <button onClick={() => setShowSQLModal(false)} className="btn-secondary">
+                <button 
+                  onClick={() => setShowSQLModal(false)} 
+                  className="btn-secondary"
+                  disabled={queryLoading}
+                >
                   Cancel
                 </button>
                 <button
@@ -756,11 +981,15 @@ const App: React.FC = () => {
 
         {/* AI Modal */}
         {showAIModal && (
-          <div className="modal-overlay" onClick={() => setShowAIModal(false)}>
+          <div className="modal-overlay" onClick={() => !queryLoading && setShowAIModal(false)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>🤖 AI Chat</h2>
-                <button onClick={() => setShowAIModal(false)} className="modal-close">
+                <button 
+                  onClick={() => setShowAIModal(false)} 
+                  className="modal-close"
+                  disabled={queryLoading}
+                >
                   ✕
                 </button>
               </div>
@@ -774,12 +1003,17 @@ const App: React.FC = () => {
                 value={aiQuestion}
                 onChange={(e) => setAiQuestion(e.target.value)}
                 className="ai-input"
-                placeholder="What are the top 10 rows sorted by price?"
+                placeholder="What are the top 10 rows sorted by revenue?"
                 rows={4}
+                disabled={queryLoading}
               />
 
               <div className="modal-footer">
-                <button onClick={() => setShowAIModal(false)} className="btn-secondary">
+                <button 
+                  onClick={() => setShowAIModal(false)} 
+                  className="btn-secondary"
+                  disabled={queryLoading}
+                >
                   Cancel
                 </button>
                 <button
@@ -796,18 +1030,21 @@ const App: React.FC = () => {
                 <button
                   onClick={() => setAiQuestion("Show me the top 10 rows by revenue")}
                   className="example-btn"
+                  disabled={queryLoading}
                 >
                   Show me the top 10 rows by revenue
                 </button>
                 <button
                   onClick={() => setAiQuestion("What's the average value in the price column?")}
                   className="example-btn"
+                  disabled={queryLoading}
                 >
                   What's the average value in the price column?
                 </button>
                 <button
                   onClick={() => setAiQuestion("Group by category and count rows")}
                   className="example-btn"
+                  disabled={queryLoading}
                 >
                   Group by category and count rows
                 </button>

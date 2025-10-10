@@ -1,9 +1,9 @@
 """
-JetDB v8.3.0 - Production Ready with SAS Token Authentication
-==============================================================
-ALL 13 CRITICAL FIXES + SECURE SAS TOKEN ACCESS:
+JetDB v8.2.0 - Production Ready with Secure Azure Access
+==========================================================
+ALL 13 CRITICAL FIXES + SECURE BLOB ACCESS:
 ✅ 1. User-Specific Filtering (JWT token validation)
-✅ 2. Azure Blob Storage Integration (SECURE - SAS token access)
+✅ 2. Azure Blob Storage Integration (SECURE - authenticated access)
 ✅ 3. Environment Variable Validation
 ✅ 4. Query Timeout Re-implementation
 ✅ 5. Error Response Standardization
@@ -14,7 +14,7 @@ ALL 13 CRITICAL FIXES + SECURE SAS TOKEN ACCESS:
 ✅ 10. Spreadsheet State Endpoints (imported)
 ✅ 11. Health Check Enhancement
 ✅ 12. Logging Fix (request_id optional)
-✅ 13. SAS Tokens for Secure Blob Access (NO PUBLIC ACCESS NEEDED!)
+✅ 13. DuckDB Secrets for Authenticated Blob Access
 """
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks, Request, Depends
@@ -50,7 +50,7 @@ from slowapi.errors import RateLimitExceeded
 load_dotenv()
 
 # Version
-VERSION = "8.3.0"
+VERSION = "8.2.0"
 
 # ============================================================================
 # LOGGING CONFIGURATION (FIX #12)
@@ -81,7 +81,6 @@ def validate_environment():
         "SUPABASE_KEY": os.getenv("SUPABASE_KEY"),
         "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
         "AZURE_STORAGE_CONNECTION_STRING": os.getenv("AZURE_STORAGE_CONNECTION_STRING"),
-        "AZURE_SAS_TOKEN": os.getenv("AZURE_SAS_TOKEN"),
     }
     
     missing = [k for k, v in required_vars.items() if not v]
@@ -101,7 +100,6 @@ SUPABASE_URL = env_vars["SUPABASE_URL"]
 SUPABASE_KEY = env_vars["SUPABASE_KEY"]
 OPENAI_API_KEY = env_vars["OPENAI_API_KEY"]
 AZURE_CONNECTION_STRING = env_vars["AZURE_STORAGE_CONNECTION_STRING"]
-AZURE_SAS_TOKEN = env_vars["AZURE_SAS_TOKEN"]
 
 # ============================================================================
 # FASTAPI APP INITIALIZATION
@@ -256,20 +254,36 @@ def delete_from_blob(blob_path: str):
         logger.warning(f"Blob delete failed (may not exist): {e}")
 
 # ============================================================================
-# DUCKDB HELPER - SAS TOKEN AUTHENTICATION (FIX #13)
+# DUCKDB HELPER - SECURE AZURE ACCESS (FIX #13)
 # ============================================================================
 
-def create_duckdb_connection():
-    """Create DuckDB connection - no Azure auth needed with SAS tokens"""
+def create_duckdb_connection_with_azure():
+    """Create DuckDB connection with Azure authentication"""
+    import re
+    
     conn = duckdb.connect(':memory:')
+    conn.execute("INSTALL azure;")
+    conn.execute("LOAD azure;")
+    
+    # Parse connection string components
+    conn_str = AZURE_CONNECTION_STRING
+    
+    # Extract account name and key
+    account_match = re.search(r'AccountName=([^;]+)', conn_str)
+    key_match = re.search(r'AccountKey=([^;]+)', conn_str)
+    
+    if account_match and key_match:
+        account_name = account_match.group(1)
+        account_key = key_match.group(1)
+        
+        # Set individual parameters
+        conn.execute(f"SET azure_storage_account = '{account_name}';")
+        conn.execute(f"SET azure_account_key = '{account_key}';")
+    else:
+        # Fallback to connection string
+        conn.execute(f"SET azure_storage_connection_string = '{AZURE_CONNECTION_STRING}';")
+    
     return conn
-
-def get_authenticated_blob_url(blob_url: str) -> str:
-    """
-    Append SAS token to blob URL for secure authenticated access
-    This allows DuckDB to read private blobs without making them public!
-    """
-    return f"{blob_url}{AZURE_SAS_TOKEN}"
 
 # ============================================================================
 # DATABASE HELPERS
@@ -302,42 +316,23 @@ def list_datasets_from_db(user_id: str) -> List[dict]:
 def analyze_dataset_background(dataset_id: str, blob_url: str, user_id: str):
     """
     Analyze dataset in background - gets exact row count (FIX #6 + #13)
-    Now uses SAS tokens for secure blob access
+    Now properly handles Azure Blob Storage with secure authentication
     """
     conn = None
     try:
         logger.info(f"📊 Analyzing {dataset_id}")
         start_time = datetime.now()
         
-        # Create connection and get authenticated URL
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
+        # Configure DuckDB to use Azure with authentication (FIX #13)
+        conn = create_duckdb_connection_with_azure()
         
-        # Get exact row count with robust CSV parsing
-        row_count = conn.execute(f"""
-            SELECT COUNT(*) as count 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            )
-        """).fetchone()[0]
+        # Get exact row count
+        row_count = conn.execute(
+            f"SELECT COUNT(*) as count FROM '{blob_url}'"
+        ).fetchone()[0]
         
         # Get column info
-        result = conn.execute(f"""
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            ) 
-            LIMIT 1
-        """).fetchdf()
-        
+        result = conn.execute(f"SELECT * FROM '{blob_url}' LIMIT 1").fetchdf()
         column_count = len(result.columns)
         columns = list(result.columns)
         
@@ -457,9 +452,6 @@ async def health_check():
     # Check OpenAI
     health_status["dependencies"]["openai"] = "configured" if OPENAI_API_KEY else "not_configured"
     
-    # Check SAS Token
-    health_status["dependencies"]["azure_sas_token"] = "configured" if AZURE_SAS_TOKEN else "not_configured"
-    
     status_code = 200 if health_status["status"] in ["healthy", "degraded"] else 503
     return JSONResponse(content=health_status, status_code=status_code)
 
@@ -476,13 +468,13 @@ def read_root():
         "status": "running",
         "features": [
             "JWT Authentication",
-            "Azure Blob Storage (Secure with SAS Tokens)",
+            "Azure Blob Storage (Secure)",
             "OpenAI Natural Language Queries",
             "Rate Limiting",
             "Spreadsheet State Persistence",
             "Comprehensive Error Handling",
             "Request ID Tracking",
-            "Private Blob Access (No Public Access Required)"
+            "Authenticated Blob Access"
         ],
         "endpoints": {
             "health": "GET /health",
@@ -588,26 +580,14 @@ async def preview_dataset(
     limit: int = 100,
     user_id: str = Depends(get_current_user)
 ):
-    """Get a preview of the dataset with secure SAS token access"""
+    """Get a preview of the dataset with secure access"""
     dataset = get_dataset_from_db(dataset_id, user_id)
     blob_url = dataset["blob_path"]
     
     conn = None
     try:
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
-        
-        result = conn.execute(f"""
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            ) 
-            LIMIT {limit}
-        """).fetchdf()
+        conn = create_duckdb_connection_with_azure()
+        result = conn.execute(f"SELECT * FROM '{blob_url}' LIMIT {limit}").fetchdf()
         
         return {
             "dataset_id": dataset_id,
@@ -630,26 +610,16 @@ async def get_dataset_rows(
     limit: int = 1000,
     user_id: str = Depends(get_current_user)
 ):
-    """Get paginated rows from dataset with secure SAS token access"""
+    """Get paginated rows from dataset with secure access"""
     dataset = get_dataset_from_db(dataset_id, user_id)
     blob_url = dataset["blob_path"]
     
     conn = None
     try:
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
-        
-        result = conn.execute(f"""
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            ) 
-            LIMIT {limit} OFFSET {offset}
-        """).fetchdf()
+        conn = create_duckdb_connection_with_azure()
+        result = conn.execute(
+            f"SELECT * FROM '{blob_url}' LIMIT {limit} OFFSET {offset}"
+        ).fetchdf()
         
         return {
             "dataset_id": dataset_id,
@@ -685,24 +655,13 @@ async def execute_sql(
     
     conn = None
     try:
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
+        conn = create_duckdb_connection_with_azure()
         
         # Set query timeout (FIX #4)
         conn.execute(f"SET statement_timeout='{QUERY_TIMEOUT_SECONDS}000ms';")
         
-        # Create view from CSV with robust parsing
-        conn.execute(f"""
-            CREATE VIEW data AS 
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            )
-        """)
+        # Create view
+        conn.execute(f"CREATE VIEW data AS SELECT * FROM '{blob_url}'")
         
         # Execute query
         start_time = time.time()
@@ -773,19 +732,8 @@ async def export_dataset(
     
     conn = None
     try:
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
-        
-        result = conn.execute(f"""
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            )
-        """).fetchdf()
+        conn = create_duckdb_connection_with_azure()
+        result = conn.execute(f"SELECT * FROM '{blob_url}'").fetchdf()
         
         output = io.StringIO()
         result.to_csv(output, index=False)
@@ -823,34 +771,13 @@ async def natural_language_query(
     
     conn = None
     try:
-        conn = create_duckdb_connection()
-        authenticated_url = get_authenticated_blob_url(blob_url)
+        conn = create_duckdb_connection_with_azure()
         
         # Get schema
-        schema_query = f"""
-            DESCRIBE 
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            )
-        """
+        schema_query = f"DESCRIBE SELECT * FROM '{blob_url}'"
         schema_info = conn.execute(schema_query).fetchdf()
         
-        sample_query = f"""
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            ) 
-            LIMIT 3
-        """
+        sample_query = f"SELECT * FROM '{blob_url}' LIMIT 3"
         sample_data = conn.execute(sample_query).fetchdf()
         
         schema_text = "\n".join([
@@ -907,17 +834,7 @@ async def natural_language_query(
         
         # Execute with timeout
         conn.execute(f"SET statement_timeout='{QUERY_TIMEOUT_SECONDS}000ms';")
-        conn.execute(f"""
-            CREATE VIEW data AS 
-            SELECT * 
-            FROM read_csv(
-                '{authenticated_url}',
-                auto_detect=true,
-                header=true,
-                ignore_errors=true,
-                max_line_size=10000000
-            )
-        """)
+        conn.execute(f"CREATE VIEW data AS SELECT * FROM '{blob_url}'")
         
         result = conn.execute(sql_query).fetchdf()
         
@@ -961,18 +878,17 @@ async def startup_event():
 ╔═══════════════════════════════════════════╗
 ║           JetDB v{VERSION}                 ║
 ║       Production Ready Backend            ║
-║     Secure SAS Token Authentication       ║
+║       Secure Azure Blob Access            ║
 ╚═══════════════════════════════════════════╝
     """)
     logger.info("✅ Environment validated")
     logger.info("✅ JWT Authentication enabled")
-    logger.info("✅ Azure Blob Storage connected (SECURE with SAS)")
+    logger.info("✅ Azure Blob Storage connected (SECURE)")
     logger.info(f"✅ CORS restricted to: {FRONTEND_URL}")
     logger.info("✅ Rate limiting enabled")
     logger.info("✅ Request ID tracking enabled")
     logger.info("✅ Query timeout: 30 seconds")
-    logger.info("✅ All 13 critical fixes + SAS token security implemented")
-    logger.info("🔒 Blobs remain PRIVATE - No public access required!")
+    logger.info("✅ All 13 critical fixes + secure blob access implemented")
     logger.info("🚀 Ready for production deployment")
 
 if __name__ == "__main__":
