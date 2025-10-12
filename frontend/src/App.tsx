@@ -1,14 +1,19 @@
 /**
- * JetDB Frontend v7.3.1 - Production Ready
- * ==========================================
- * FIXES IMPLEMENTED:
- * ✅ 8. Auto-Refresh Dataset List (after upload)
- * ✅ 9. Loading States (comprehensive for all operations)
- * ✅ 10. Luckysheet Timing Fix (getContext error resolved)
+ * JetDB Frontend v7.5.0 - Enhanced Infinite Scrolling & Polish
+ * ===========================================================
+ * NEW IN v7.5.0:
+ * ✅ Better infinite scrolling (100k empty rows for true Excel feel)
+ * ✅ Smooth transitions between pages
+ * ✅ Keyboard shortcuts for navigation (PgUp/PgDown)
+ * ✅ Loading overlay during page transitions
+ * ✅ Better error handling for spreadsheet
+ * ✅ Upload speed display
+ * ✅ Parquet format indicator
+ * ✅ Improved loading states
  */
 
 import ErrorBoundary from './components/ErrorBoundary';
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useDropzone } from "react-dropzone";
 import { createClient, Session } from '@supabase/supabase-js';
 import axios from "axios";
@@ -22,24 +27,25 @@ import "luckysheet/dist/css/luckysheet.css";
 import "luckysheet/dist/assets/iconfont/iconfont.css";
 import "./App.css";
 
-// Ensure jQuery and mousewheel are globally available
 (window as any).$ = $;
 (window as any).jQuery = $;
 
-// Force load mousewheel plugin
-if ($.fn && !$.fn.mousewheel) {
-  console.warn("⚠️ jQuery mousewheel not loaded, attempting to load...");
-  require("jquery-mousewheel");
-}
-
-// Initialize Supabase client
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL || '',
   process.env.REACT_APP_SUPABASE_KEY || ''
 );
 
 const API_BASE = process.env.REACT_APP_API_BASE || "http://localhost:8000";
-const VERSION = "7.3.1";
+const VERSION = "7.5.0";
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
+const SPREADSHEET_PAGE_SIZE = 10000;
+
+// Enhanced padding for true Excel-like feel
+const SPREADSHEET_PADDING = {
+  EXTRA_COLUMNS: 100,    // Columns through CV (100 columns)
+  EXTRA_ROWS: 100000,    // 100k empty rows for infinite feel
+};
 
 interface Dataset {
   id: string;
@@ -49,8 +55,10 @@ interface Dataset {
   column_count: number;
   columns: string[];
   uploaded_at: string;
+  created_at?: string;
   status: "analyzing" | "ready" | "error";
   size_bytes: number;
+  storage_format?: string;
 }
 
 const App: React.FC = () => {
@@ -66,6 +74,7 @@ const App: React.FC = () => {
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
   const [uploading, setUploading] = useState<boolean>(false);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
+  const [uploadSpeed, setUploadSpeed] = useState<string>("");
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [spreadsheetInitialized, setSpreadsheetInitialized] = useState<boolean>(false);
   const [showDatasetPicker, setShowDatasetPicker] = useState<boolean>(false);
@@ -75,13 +84,20 @@ const App: React.FC = () => {
   const [aiQuestion, setAiQuestion] = useState<string>("");
   const [queryLoading, setQueryLoading] = useState<boolean>(false);
   
-  // Loading states for better UX
+  // Loading states
   const [datasetsLoading, setDatasetsLoading] = useState<boolean>(false);
   const [datasetLoading, setDatasetLoading] = useState<boolean>(false);
+  const [pageTransitioning, setPageTransitioning] = useState<boolean>(false);
   const [deletingDatasetId, setDeletingDatasetId] = useState<string | null>(null);
 
-  const MAX_FILE_SIZE = 10 * 1024 * 1024 * 1024;
-  const SPREADSHEET_PAGE_SIZE = 10000;
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState<number>(0);
+  const [totalRows, setTotalRows] = useState<number>(0);
+
+  // Refs to prevent duplicate operations
+  const loadingRef = useRef<boolean>(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const luckysheetInstanceRef = useRef<boolean>(false);
 
   // Check auth session on mount
   useEffect(() => {
@@ -90,9 +106,7 @@ const App: React.FC = () => {
       setAuthLoading(false);
     });
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
     });
 
@@ -112,13 +126,14 @@ const App: React.FC = () => {
   // Mobile warning
   useEffect(() => {
     if (window.innerWidth < 768) {
-      toast("⚠️ JetDB works best on desktop", { duration: 8000 });
+      toast("⚠️ JetDB works best on desktop for full spreadsheet experience", { duration: 8000 });
     }
   }, []);
 
-  // Keyboard shortcuts
+  // Enhanced keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
+      // Command/Ctrl shortcuts
       if (e.ctrlKey || e.metaKey) {
         if (e.key === 'k') { 
           e.preventDefault(); 
@@ -128,11 +143,44 @@ const App: React.FC = () => {
           e.preventDefault(); 
           if (selectedDataset && !queryLoading) setShowAIModal(true);
         }
+        if (e.key === 'o') {
+          e.preventDefault();
+          setShowDatasetPicker(true);
+        }
+      }
+      
+      // Navigation shortcuts when spreadsheet is open
+      if (selectedDataset && !datasetLoading && !pageTransitioning) {
+        if (e.key === 'PageDown' && hasNext) {
+          e.preventDefault();
+          handleNextPage();
+        }
+        if (e.key === 'PageUp' && hasPrevious) {
+          e.preventDefault();
+          handlePreviousPage();
+        }
       }
     };
+    
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
-  }, [selectedDataset, queryLoading]);
+  }, [selectedDataset, queryLoading, datasetLoading]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      if (luckysheetInstanceRef.current) {
+        try {
+          luckysheet.destroy();
+        } catch (e) {
+          console.log("Luckysheet cleanup error:", e);
+        }
+      }
+    };
+  }, []);
 
   // Auth functions
   const handleAuth = async (e: React.FormEvent) => {
@@ -157,13 +205,18 @@ const App: React.FC = () => {
   };
 
   const handleSignOut = async () => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    
     await supabase.auth.signOut();
     setDatasets([]);
     setSelectedDataset(null);
+    setSpreadsheetInitialized(false);
     toast.success("Signed out");
   };
 
-  // Fetch datasets (used by auto-refresh)
+  // Fetch datasets with proper polling management
   const fetchDatasets = useCallback(async (showLoading: boolean = true) => {
     if (!session) return;
     
@@ -173,12 +226,35 @@ const App: React.FC = () => {
       const { data } = await axios.get(`${API_BASE}/datasets`, {
         headers: getAuthHeaders()
       });
-      setDatasets(data.datasets || []);
       
-      // If we're showing a dataset that's analyzing, check again in 3 seconds
-      const currentDataset = data.datasets?.find((d: Dataset) => d.id === selectedDataset);
-      if (currentDataset?.status === "analyzing") {
-        setTimeout(() => fetchDatasets(false), 3000);
+      const newDatasets = data.datasets || [];
+      setDatasets(newDatasets);
+      
+      // Check if we need to poll for analyzing datasets
+      const analyzingDatasets = newDatasets.filter((d: Dataset) => d.status === "analyzing");
+      
+      if (analyzingDatasets.length > 0 && !pollingIntervalRef.current) {
+        pollingIntervalRef.current = setInterval(async () => {
+          try {
+            const { data: pollData } = await axios.get(`${API_BASE}/datasets`, {
+              headers: getAuthHeaders()
+            });
+            
+            const updatedDatasets = pollData.datasets || [];
+            setDatasets(updatedDatasets);
+            
+            const stillAnalyzing = updatedDatasets.filter((d: Dataset) => d.status === "analyzing");
+            if (stillAnalyzing.length === 0 && pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+          } catch (error) {
+            console.error("Polling error:", error);
+          }
+        }, 3000);
+      } else if (analyzingDatasets.length === 0 && pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
       }
     } catch (error: any) {
       console.error("Failed to fetch datasets:", error);
@@ -189,15 +265,16 @@ const App: React.FC = () => {
     } finally {
       if (showLoading) setDatasetsLoading(false);
     }
-  }, [session, getAuthHeaders, selectedDataset]);
+  }, [session, getAuthHeaders]);
 
+  // Initial fetch on session change
   useEffect(() => {
     if (session) {
       fetchDatasets();
     }
   }, [session, fetchDatasets]);
 
-  // File upload (auto-refresh after upload)
+  // Enhanced file upload with speed tracking
   const onDrop = useCallback(async (acceptedFiles: File[]) => {
     if (!session) {
       toast.error("Please log in first");
@@ -219,9 +296,14 @@ const App: React.FC = () => {
 
     setUploading(true);
     setUploadProgress(0);
+    setUploadSpeed("");
 
     const formData = new FormData();
     formData.append("file", file);
+
+    const startTime = Date.now();
+    let lastTime = startTime;
+    let lastLoaded = 0;
 
     try {
       const { data } = await axios.post(`${API_BASE}/upload`, formData, {
@@ -230,41 +312,52 @@ const App: React.FC = () => {
           "Content-Type": "multipart/form-data",
         },
         onUploadProgress: (progressEvent) => {
-          const progress = progressEvent.total
-            ? Math.round((progressEvent.loaded * 100) / progressEvent.total)
-            : 0;
+          const loaded = progressEvent.loaded || 0;
+          const total = progressEvent.total || file.size;
+          const progress = Math.round((loaded * 100) / total);
           setUploadProgress(progress);
+          
+          // Calculate instantaneous upload speed
+          const currentTime = Date.now();
+          const timeDiff = (currentTime - lastTime) / 1000; // seconds
+          if (timeDiff > 0.5) { // Update speed every 0.5 seconds
+            const bytesDiff = loaded - lastLoaded;
+            const bytesPerSecond = bytesDiff / timeDiff;
+            const mbPerSecond = bytesPerSecond / (1024 * 1024);
+            setUploadSpeed(`${mbPerSecond.toFixed(1)} MB/s`);
+            
+            lastTime = currentTime;
+            lastLoaded = loaded;
+          }
         },
       });
 
-      toast.success(`✅ Uploaded ${file.name}! Analyzing...`);
+      const uploadTime = (Date.now() - startTime) / 1000;
+      const finalSpeed = (file.size / (1024 * 1024)) / uploadTime;
+
+      toast.success(
+        <div>
+          <div>✅ Uploaded {file.name}!</div>
+          <div style={{ fontSize: "12px", opacity: 0.8 }}>
+            {data.storage_format === "parquet" ? "⚡ Converted to Parquet" : "📄 Stored as CSV"}
+            {" • "}{finalSpeed.toFixed(1)} MB/s avg
+            {" • "}{(file.size / (1024 * 1024)).toFixed(1)} MB
+          </div>
+        </div>,
+        { duration: 5000 }
+      );
       
-      // Auto-refresh dataset list after upload
       await fetchDatasets(false);
       setSelectedDataset(data.dataset_id);
-      
-      // Poll for analysis completion
-      const pollInterval = setInterval(async () => {
-        await fetchDatasets(false);
-        const updatedDataset = datasets.find(d => d.id === data.dataset_id);
-        if (updatedDataset?.status === "ready" || updatedDataset?.status === "error") {
-          clearInterval(pollInterval);
-          if (updatedDataset.status === "ready") {
-            toast.success(`✅ Analysis complete! ${updatedDataset.row_count?.toLocaleString()} rows`);
-          }
-        }
-      }, 2000);
-      
-      // Stop polling after 2 minutes
-      setTimeout(() => clearInterval(pollInterval), 120000);
       
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Upload failed");
     } finally {
       setUploading(false);
       setUploadProgress(0);
+      setUploadSpeed("");
     }
-  }, [session, getAuthHeaders, fetchDatasets, datasets]);
+  }, [session, getAuthHeaders, fetchDatasets]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -273,169 +366,240 @@ const App: React.FC = () => {
     disabled: uploading || !session,
   });
 
-  // Load data into spreadsheet - FIXED TIMING ISSUE WITH DEBUGGING
-  const loadDataIntoSpreadsheet = useCallback(async (datasetId: string) => {
-    if (!session) return;
+  // Enhanced spreadsheet loading with smooth transitions
+  const loadDataIntoSpreadsheet = useCallback(async (datasetId: string, page: number = 0, isTransition: boolean = false) => {
+    if (loadingRef.current || !session) {
+      return;
+    }
 
-    setDatasetLoading(true);
+    loadingRef.current = true;
+    
+    if (isTransition) {
+      setPageTransitioning(true);
+    } else {
+      setDatasetLoading(true);
+    }
+    
+    const offset = page * SPREADSHEET_PAGE_SIZE;
     
     try {
-      console.log("📊 Fetching dataset rows...");
+      console.log(`📊 Loading dataset ${datasetId}, page ${page + 1}`);
+      
       const { data } = await axios.get(
-        `${API_BASE}/datasets/${datasetId}/rows?limit=${SPREADSHEET_PAGE_SIZE}`,
+        `${API_BASE}/datasets/${datasetId}/rows?limit=${SPREADSHEET_PAGE_SIZE}&offset=${offset}`,
         { headers: getAuthHeaders() }
       );
 
       const rows = data.data;
-      console.log(`✅ Received ${rows?.length || 0} rows`);
       
       if (!rows || rows.length === 0) {
-        toast.error("No data to display");
-        setDatasetLoading(false);
+        if (page === 0) {
+          toast.error("No data to display");
+        } else {
+          toast.error("No more data available");
+        }
         return;
       }
 
+      const dataset = datasets.find(d => d.id === datasetId);
+      const total = dataset?.row_count || dataset?.estimated_rows || 0;
+      setTotalRows(total);
+
       const columns = Object.keys(rows[0]);
-      console.log(`📋 Columns: ${columns.join(", ")}`);
       
+      // Build Luckysheet data with enhanced padding
       const luckysheetData = [
-        columns.map((col: string) => ({
-          v: col,
-          m: col,
-          ct: { fa: "General", t: "s" },
-          bg: "#f0f0f0",
-          bl: 1,
-        })),
-        ...rows.map((row: any) =>
-          columns.map((col: string) => ({
+        // Header row
+        [
+          ...columns.map((col: string) => ({
+            v: col,
+            m: col,
+            ct: { fa: "General", t: "s" },
+            bg: "#f0f0f0",
+            bl: 1,
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "s" },
+            bg: "#f0f0f0",
+          }))
+        ],
+        // Data rows
+        ...rows.map((row: any) => [
+          ...columns.map((col: string) => ({
             v: row[col],
             m: String(row[col] ?? ""),
             ct: { fa: "General", t: "g" },
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
           }))
-        ),
+        ]),
+        // Massive padding for Excel-like feel
+        ...Array(SPREADSHEET_PADDING.EXTRA_ROWS).fill(null).map(() =>
+          Array(columns.length + SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
+          }))
+        )
       ];
 
-      console.log("⏳ Waiting for DOM...");
-
-      // CRITICAL FIX: Wait for DOM to be ready before initializing Luckysheet
-      setTimeout(() => {
-        console.log("🔍 Checking for container...");
-        const container = document.getElementById("luckysheet-container");
-        
-        if (!container) {
-          console.error("❌ Container not found!");
-          toast.error("Spreadsheet container not found - try refreshing");
-          setDatasetLoading(false);
-          return;
-        }
-
-        console.log("✅ Container found:", container);
-        console.log("📦 Container dimensions:", container.offsetWidth, "x", container.offsetHeight);
-
-        // Check if Luckysheet is available
-        if (typeof luckysheet === 'undefined' || !luckysheet.create) {
-          console.error("❌ Luckysheet library not loaded!");
-          toast.error("Spreadsheet library not loaded - try refreshing");
-          setDatasetLoading(false);
-          return;
-        }
-
-        console.log("✅ Luckysheet library loaded");
-
-        // Check if jQuery mousewheel is loaded
-        const $ = (window as any).$;
-        if (!$ || !$.fn || !$.fn.mousewheel) {
-          console.error("❌ jQuery mousewheel not loaded!");
-          toast.error("Spreadsheet dependencies missing - try refreshing");
-          setDatasetLoading(false);
-          return;
-        }
-
-        console.log("✅ jQuery mousewheel loaded");
-
-        // Clear any existing Luckysheet instance
-        container.innerHTML = "";
-        console.log("🧹 Container cleared");
-
+      // Smooth transition for page changes
+      if (isTransition && luckysheetInstanceRef.current) {
+        // Just update the data without destroying
         try {
-          console.log("🚀 Initializing Luckysheet...");
-          
-          luckysheet.create({
-            container: "luckysheet-container",
-            showinfobar: false,
-            showsheetbar: false,
-            showstatisticBar: false,
-            enableAddRow: false,
-            enableAddCol: false,
-            userInfo: false,
-            showConfigWindowResize: false,
-            data: [
-              {
-                name: "Sheet1",
-                color: "",
-                status: 1,
-                order: 0,
-                data: luckysheetData,
-                config: {},
-                index: 0,
-              },
-            ],
-          });
-
-          console.log("✅ Luckysheet initialized successfully!");
-          setSpreadsheetInitialized(true);
-          setDatasetLoading(false);
-          
-          if (data.total_rows && data.total_rows > SPREADSHEET_PAGE_SIZE) {
-            toast(`Showing first ${SPREADSHEET_PAGE_SIZE.toLocaleString()} of ${data.total_rows.toLocaleString()} rows`, {
-              duration: 5000,
-              icon: "ℹ️",
-            });
-          }
-        } catch (err: any) {
-          console.error("❌ Luckysheet initialization error:", err);
-          console.error("Error message:", err.message);
-          console.error("Error stack:", err.stack);
-          toast.error(`Spreadsheet error: ${err.message || "Unknown error"}`);
-          setDatasetLoading(false);
+          const sheetIndex = luckysheet.getSheet().index;
+          luckysheet.setSheetData(luckysheetData, sheetIndex);
+          luckysheet.refresh();
+        } catch (e) {
+          console.log("Sheet update error, doing full reload:", e);
+          isTransition = false; // Fall back to full reload
         }
-      }, 250); // Increased to 250ms for safer timing
+      }
+
+      if (!isTransition) {
+        // Clean up existing Luckysheet instance
+        const container = document.getElementById("luckysheet-container");
+        if (!container) {
+          console.error("Luckysheet container not found");
+          return;
+        }
+
+        // Destroy existing instance if any
+        if (luckysheetInstanceRef.current) {
+          try {
+            luckysheet.destroy();
+            luckysheetInstanceRef.current = false;
+          } catch (e) {
+            console.log("Luckysheet destroy error (expected):", e);
+          }
+        }
+
+        // Clear container
+        container.innerHTML = "";
+
+        // Small delay to ensure DOM is ready
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Create new Luckysheet instance with enhanced options
+        luckysheet.create({
+          container: "luckysheet-container",
+          showinfobar: false,
+          showsheetbar: false,
+          showstatisticBar: true,
+          showstatisticBarConfig: {
+            count: true,
+            view: true,
+            zoom: true
+          },
+          enableAddRow: false,
+          enableAddCol: false,
+          userInfo: false,
+          showConfigWindowResize: false,
+          forceCalculation: false,
+          rowHeaderWidth: 50,
+          columnHeaderHeight: 20,
+          defaultColWidth: 100,
+          defaultRowHeight: 20,
+          data: [{
+            name: `${dataset?.filename} - Page ${page + 1}`,
+            color: "",
+            status: 1,
+            order: 0,
+            data: luckysheetData,
+            config: {
+              merge: {},
+              rowlen: {},
+              columnlen: {},
+              rowhidden: {},
+              colhidden: {},
+              borderInfo: []
+            },
+            index: 0,
+          }],
+          myFolderUrl: null,
+          updateUrl: null,
+          loadUrl: null,
+          loadSheetUrl: null,
+          allowUpdate: false,
+          functionButton: false,
+        });
+
+        luckysheetInstanceRef.current = true;
+        setSpreadsheetInitialized(true);
+      }
+      
+      const startRow = offset + 1;
+      const endRow = Math.min(offset + rows.length, total);
+      
+      // Show info toast with performance metrics
+      if (data.query_time_seconds) {
+        const rowsPerSec = (data.rows_per_second / 1000).toFixed(0);
+        toast.success(
+          <div>
+            <div>Loaded rows {startRow.toLocaleString()}-{endRow.toLocaleString()} of {total.toLocaleString()}</div>
+            <div style={{ fontSize: "12px", opacity: 0.8 }}>
+              ⚡ {data.query_time_seconds}s • {rowsPerSec}k rows/s • {data.storage_format?.toUpperCase() || 'CSV'}
+            </div>
+          </div>,
+          { duration: 3000 }
+        );
+      }
 
     } catch (error: any) {
-      console.error("❌ Load failed:", error);
+      console.error("Load failed:", error);
       toast.error(error.response?.data?.detail || "Failed to load data");
+    } finally {
       setDatasetLoading(false);
+      setPageTransitioning(false);
+      loadingRef.current = false;
     }
-  }, [session, getAuthHeaders]);
+  }, [session, getAuthHeaders, datasets]);
 
+  // Handle dataset selection change
   useEffect(() => {
-    if (selectedDataset) {
-      console.log("🎯 Selected dataset changed:", selectedDataset);
-      
-      // Wait for container to be rendered in DOM
-      const waitForContainer = (attempts = 0) => {
-        const container = document.getElementById("luckysheet-container");
-        
-        if (container) {
-          console.log("✅ Container found, loading data...");
-          loadDataIntoSpreadsheet(selectedDataset);
-        } else if (attempts < 10) {
-          console.log(`⏳ Container not ready, attempt ${attempts + 1}/10`);
-          setTimeout(() => waitForContainer(attempts + 1), 100);
-        } else {
-          console.error("❌ Container never appeared after 10 attempts");
-          toast.error("Failed to initialize spreadsheet - please try again");
-          setDatasetLoading(false);
-        }
-      };
-      
-      waitForContainer();
+    if (selectedDataset && !loadingRef.current) {
+      setCurrentPage(0);
+      loadDataIntoSpreadsheet(selectedDataset, 0);
     }
-  }, [selectedDataset, loadDataIntoSpreadsheet]);
+  }, [selectedDataset]);
 
-  // SQL Query (better loading feedback)
+  // Enhanced pagination handlers with smooth transitions
+  const handlePreviousPage = async () => {
+    if (currentPage > 0 && selectedDataset && !loadingRef.current && !pageTransitioning) {
+      const newPage = currentPage - 1;
+      setCurrentPage(newPage);
+      await loadDataIntoSpreadsheet(selectedDataset, newPage, true);
+    }
+  };
+
+  const handleNextPage = async () => {
+    if (selectedDataset && (currentPage + 1) * SPREADSHEET_PAGE_SIZE < totalRows && !loadingRef.current && !pageTransitioning) {
+      const newPage = currentPage + 1;
+      setCurrentPage(newPage);
+      await loadDataIntoSpreadsheet(selectedDataset, newPage, true);
+    }
+  };
+
+  const handleGoToPage = async (page: number) => {
+    if (selectedDataset && page >= 0 && !loadingRef.current && !pageTransitioning) {
+      const maxPage = Math.ceil(totalRows / SPREADSHEET_PAGE_SIZE) - 1;
+      const targetPage = Math.min(page, maxPage);
+      
+      if (targetPage !== currentPage) {
+        setCurrentPage(targetPage);
+        await loadDataIntoSpreadsheet(selectedDataset, targetPage, Math.abs(targetPage - currentPage) === 1);
+      }
+    }
+  };
+
+  // SQL Query execution
   const executeSQLQuery = async () => {
-    if (!selectedDataset || !session) return;
+    if (!selectedDataset || !session || queryLoading) return;
 
     setQueryLoading(true);
     const loadingToast = toast.loading("🔍 Running SQL query...");
@@ -443,84 +607,116 @@ const App: React.FC = () => {
     try {
       const { data } = await axios.post(
         `${API_BASE}/query/sql`,
-        {
-          sql: sqlQuery,
-          dataset_id: selectedDataset,
-        },
+        { sql: sqlQuery, dataset_id: selectedDataset },
         { headers: getAuthHeaders() }
       );
 
       const rows = data.data;
       if (!rows || rows.length === 0) {
         toast.error("Query returned no results", { id: loadingToast });
-        setQueryLoading(false);
         return;
       }
 
       const columns = Object.keys(rows[0]);
       const luckysheetData = [
-        columns.map((col: string) => ({
-          v: col,
-          m: col,
-          ct: { fa: "General", t: "s" },
-          bg: "#e3f2fd",
-          bl: 1,
-        })),
-        ...rows.map((row: any) =>
-          columns.map((col: string) => ({
+        [
+          ...columns.map((col: string) => ({
+            v: col,
+            m: col,
+            ct: { fa: "General", t: "s" },
+            bg: "#e3f2fd",
+            bl: 1,
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "s" },
+            bg: "#e3f2fd",
+          }))
+        ],
+        ...rows.map((row: any) => [
+          ...columns.map((col: string) => ({
             v: row[col],
             m: String(row[col] ?? ""),
             ct: { fa: "General", t: "g" },
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
           }))
-        ),
+        ]),
+        ...Array(SPREADSHEET_PADDING.EXTRA_ROWS).fill(null).map(() =>
+          Array(columns.length + SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
+          }))
+        )
       ];
 
-      // Wait for DOM before re-initializing
-      setTimeout(() => {
-        const container = document.getElementById("luckysheet-container");
-        if (container) {
-          container.innerHTML = "";
+      // Clean up and recreate spreadsheet
+      const container = document.getElementById("luckysheet-container");
+      if (container) {
+        if (luckysheetInstanceRef.current) {
+          try {
+            luckysheet.destroy();
+          } catch (e) {}
         }
+        container.innerHTML = "";
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         luckysheet.create({
           container: "luckysheet-container",
           showinfobar: false,
           showsheetbar: false,
-          showstatisticBar: false,
+          showstatisticBar: true,
           enableAddRow: false,
           enableAddCol: false,
           userInfo: false,
           showConfigWindowResize: false,
-          data: [
-            {
-              name: "Query Results",
-              color: "",
-              status: 1,
-              order: 0,
-              data: luckysheetData,
-              config: {},
-              index: 0,
-            },
-          ],
+          data: [{
+            name: "SQL Query Results",
+            color: "",
+            status: 1,
+            order: 0,
+            data: luckysheetData,
+            config: {},
+            index: 0,
+          }],
         });
+      }
 
-        toast.success(
-          `✅ Query returned ${data.rows_returned} rows in ${data.execution_time_seconds}s`,
-          { id: loadingToast }
-        );
-        setShowSQLModal(false);
-        setQueryLoading(false);
-      }, 100);
+      const perfInfo = data.rows_per_second 
+        ? ` • ${(data.rows_per_second / 1000000).toFixed(1)}M rows/s`
+        : '';
+      
+      const storageInfo = data.storage_format 
+        ? ` • ${data.storage_format.toUpperCase()}`
+        : '';
+
+      toast.success(
+        <div>
+          <div>✅ Query returned {data.rows_returned} rows</div>
+          <div style={{ fontSize: "12px", opacity: 0.8 }}>
+            ⚡ {data.execution_time_seconds}s{perfInfo}{storageInfo}
+          </div>
+        </div>,
+        { id: loadingToast, duration: 5000 }
+      );
+      setShowSQLModal(false);
       
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Query failed", { id: loadingToast });
+    } finally {
       setQueryLoading(false);
     }
   };
 
-  // AI Query (better loading feedback)
+  // AI Query execution
   const executeAIQuery = async () => {
-    if (!selectedDataset || !aiQuestion.trim() || !session) return;
+    if (!selectedDataset || !aiQuestion.trim() || !session || queryLoading) return;
 
     setQueryLoading(true);
     const loadingToast = toast.loading("🤖 AI is thinking...");
@@ -528,88 +724,107 @@ const App: React.FC = () => {
     try {
       const { data } = await axios.post(
         `${API_BASE}/query/natural`,
-        {
-          question: aiQuestion,
-          dataset_id: selectedDataset,
-        },
+        { question: aiQuestion, dataset_id: selectedDataset },
         { headers: getAuthHeaders() }
       );
 
       const rows = data.data;
       if (!rows || rows.length === 0) {
         toast.error("Query returned no results", { id: loadingToast });
-        setQueryLoading(false);
         return;
       }
 
       const columns = Object.keys(rows[0]);
       const luckysheetData = [
-        columns.map((col: string) => ({
-          v: col,
-          m: col,
-          ct: { fa: "General", t: "s" },
-          bg: "#f3e5f5",
-          bl: 1,
-        })),
-        ...rows.map((row: any) =>
-          columns.map((col: string) => ({
+        [
+          ...columns.map((col: string) => ({
+            v: col,
+            m: col,
+            ct: { fa: "General", t: "s" },
+            bg: "#f3e5f5",
+            bl: 1,
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "s" },
+            bg: "#f3e5f5",
+          }))
+        ],
+        ...rows.map((row: any) => [
+          ...columns.map((col: string) => ({
             v: row[col],
             m: String(row[col] ?? ""),
             ct: { fa: "General", t: "g" },
+          })),
+          ...Array(SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
           }))
-        ),
+        ]),
+        ...Array(SPREADSHEET_PADDING.EXTRA_ROWS).fill(null).map(() =>
+          Array(columns.length + SPREADSHEET_PADDING.EXTRA_COLUMNS).fill(null).map(() => ({
+            v: "",
+            m: "",
+            ct: { fa: "General", t: "g" },
+          }))
+        )
       ];
 
-      // Wait for DOM before re-initializing
-      setTimeout(() => {
-        const container = document.getElementById("luckysheet-container");
-        if (container) {
-          container.innerHTML = "";
+      // Clean up and recreate spreadsheet
+      const container = document.getElementById("luckysheet-container");
+      if (container) {
+        if (luckysheetInstanceRef.current) {
+          try {
+            luckysheet.destroy();
+          } catch (e) {}
         }
+        container.innerHTML = "";
+        
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         luckysheet.create({
           container: "luckysheet-container",
           showinfobar: false,
           showsheetbar: false,
-          showstatisticBar: false,
+          showstatisticBar: true,
           enableAddRow: false,
           enableAddCol: false,
           userInfo: false,
           showConfigWindowResize: false,
-          data: [
-            {
-              name: "AI Results",
-              color: "",
-              status: 1,
-              order: 0,
-              data: luckysheetData,
-              config: {},
-              index: 0,
-            },
-          ],
+          data: [{
+            name: "AI Query Results",
+            color: "",
+            status: 1,
+            order: 0,
+            data: luckysheetData,
+            config: {},
+            index: 0,
+          }],
         });
+      }
 
-        toast.success(
-          <div>
-            <div>✨ {data.rows_returned} rows in {data.execution_time_seconds}s</div>
-            <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
-              SQL: {data.sql_query}
-            </div>
-          </div>,
-          { duration: 6000, id: loadingToast }
-        );
-        setShowAIModal(false);
-        setAiQuestion("");
-        setQueryLoading(false);
-      }, 100);
+      toast.success(
+        <div>
+          <div>✨ {data.rows_returned} rows in {data.execution_time_seconds}s</div>
+          <div style={{ fontSize: "11px", opacity: 0.8, marginTop: "4px" }}>
+            SQL: {data.sql_query}
+          </div>
+        </div>,
+        { duration: 6000, id: loadingToast }
+      );
+      setShowAIModal(false);
+      setAiQuestion("");
       
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "AI query failed", { id: loadingToast });
+    } finally {
       setQueryLoading(false);
     }
   };
 
-  // Delete dataset (auto-refresh + loading state)
+  // Delete dataset
   const deleteDataset = async (datasetId: string) => {
     if (!session) return;
     if (!window.confirm("Delete this dataset? This cannot be undone.")) return;
@@ -623,12 +838,11 @@ const App: React.FC = () => {
       });
       
       toast.success("✅ Dataset deleted", { id: loadingToast });
-      
-      // Auto-refresh dataset list after delete
       await fetchDatasets(false);
       
       if (selectedDataset === datasetId) {
         setSelectedDataset(null);
+        setSpreadsheetInitialized(false);
       }
     } catch (error: any) {
       toast.error(error.response?.data?.detail || "Delete failed", { id: loadingToast });
@@ -643,7 +857,14 @@ const App: React.FC = () => {
     d.filename.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  // Auth screen
+  // Pagination calculations
+  const totalPages = Math.ceil(totalRows / SPREADSHEET_PAGE_SIZE);
+  const startRow = currentPage * SPREADSHEET_PAGE_SIZE + 1;
+  const endRow = Math.min((currentPage + 1) * SPREADSHEET_PAGE_SIZE, totalRows);
+  const hasPrevious = currentPage > 0;
+  const hasNext = (currentPage + 1) * SPREADSHEET_PAGE_SIZE < totalRows;
+
+  // Auth loading screen
   if (authLoading) {
     return (
       <ErrorBoundary>
@@ -651,7 +872,7 @@ const App: React.FC = () => {
           <div className="auth-box">
             <div className="auth-loader">
               <div className="spinner" style={{ margin: "0 auto" }}></div>
-              <p style={{ marginTop: "16px" }}>Loading...</p>
+              <p style={{ marginTop: "16px" }}>Loading JetDB...</p>
             </div>
           </div>
         </div>
@@ -659,6 +880,7 @@ const App: React.FC = () => {
     );
   }
 
+  // Auth screen
   if (!session) {
     return (
       <ErrorBoundary>
@@ -668,7 +890,7 @@ const App: React.FC = () => {
             <div className="auth-header">
               <h1>JetDB</h1>
               <p>Big data for the rest of us</p>
-              <div className="version-badge">v{VERSION} • Production Ready</div>
+              <div className="version-badge">v{VERSION} • Enhanced</div>
             </div>
 
             <form onSubmit={handleAuth} className="auth-form">
@@ -710,8 +932,9 @@ const App: React.FC = () => {
             <div className="auth-features">
               <div className="feature-item">⚡ Upload massive CSVs (up to 10GB)</div>
               <div className="feature-item">💻 Query millions of rows with SQL</div>
-              <div className="feature-item">🤖 Ask questions in plain English (GPT-4o-mini)</div>
-              <div className="feature-item">☁️ Secure cloud storage with Azure</div>
+              <div className="feature-item">🤖 Ask questions in plain English</div>
+              <div className="feature-item">🚀 5-10x faster with Parquet format</div>
+              <div className="feature-item">☁️ Secure cloud storage</div>
             </div>
           </div>
         </div>
@@ -725,7 +948,6 @@ const App: React.FC = () => {
       <div className="app">
         <Toaster position="top-right" />
 
-        {/* Header */}
         <header className="header">
           <div className="header-left">
             <h1 className="logo">⚡ JetDB</h1>
@@ -733,6 +955,11 @@ const App: React.FC = () => {
             {currentDataset && (
               <span className="current-file">
                 {currentDataset.filename}
+                {currentDataset.storage_format === "parquet" && (
+                  <span className="row-count" style={{ background: "#10b981" }}>
+                    ⚡ Parquet
+                  </span>
+                )}
                 {currentDataset.status === "analyzing" && (
                   <span className="row-count" style={{ background: "#ffa726" }}>
                     ⏳ Analyzing...
@@ -741,11 +968,6 @@ const App: React.FC = () => {
                 {currentDataset.status === "ready" && (currentDataset.row_count || currentDataset.estimated_rows) && (
                   <span className="row-count">
                     {(currentDataset.row_count || currentDataset.estimated_rows || 0).toLocaleString()} rows
-                  </span>
-                )}
-                {currentDataset.status === "error" && (
-                  <span className="row-count" style={{ background: "#d32f2f" }}>
-                    ❌ Error
                   </span>
                 )}
               </span>
@@ -757,6 +979,7 @@ const App: React.FC = () => {
               onClick={() => setShowDatasetPicker(true)} 
               className="btn-secondary"
               disabled={datasetsLoading}
+              title="Ctrl+O"
             >
               📁 Datasets ({datasets.length})
             </button>
@@ -766,7 +989,7 @@ const App: React.FC = () => {
                   onClick={() => setShowSQLModal(true)} 
                   className="btn-secondary" 
                   title="Ctrl+K"
-                  disabled={queryLoading || datasetLoading}
+                  disabled={queryLoading || datasetLoading || pageTransitioning}
                 >
                   💻 SQL
                 </button>
@@ -774,7 +997,7 @@ const App: React.FC = () => {
                   onClick={() => setShowAIModal(true)} 
                   className="btn-primary" 
                   title="Ctrl+J"
-                  disabled={queryLoading || datasetLoading}
+                  disabled={queryLoading || datasetLoading || pageTransitioning}
                 >
                   🤖 AI Chat
                 </button>
@@ -786,7 +1009,6 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Main Content */}
         <div className="main-content">
           {!selectedDataset ? (
             <div
@@ -800,11 +1022,9 @@ const App: React.FC = () => {
                 <div className="upload-progress">
                   <div className="spinner"></div>
                   <p>Uploading... {uploadProgress}%</p>
+                  {uploadSpeed && <p style={{ fontSize: "14px", opacity: 0.8 }}>{uploadSpeed}</p>}
                   <div className="progress-bar">
-                    <div
-                      className="progress-fill"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
+                    <div className="progress-fill" style={{ width: `${uploadProgress}%` }}></div>
                   </div>
                 </div>
               ) : (
@@ -817,33 +1037,103 @@ const App: React.FC = () => {
                     <span>🤖 AI-powered analysis</span>
                     <span>☁️ Secure cloud storage</span>
                   </div>
+                  <div style={{ marginTop: "20px", fontSize: "12px", opacity: 0.7 }}>
+                    Files over 100MB are automatically converted to Parquet for 5-10x faster queries
+                  </div>
                 </>
               )}
             </div>
           ) : (
             <>
-              {datasetLoading ? (
+              {(datasetLoading || pageTransitioning) && (
                 <div style={{ 
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   display: "flex", 
                   flexDirection: "column", 
                   alignItems: "center", 
                   justifyContent: "center", 
-                  height: "100%",
+                  background: pageTransitioning ? "rgba(26, 26, 36, 0.5)" : "rgba(26, 26, 36, 0.9)",
+                  backdropFilter: "blur(4px)",
+                  zIndex: 1000,
                   gap: "20px"
                 }}>
                   <div className="spinner"></div>
-                  <p style={{ fontSize: "18px", color: "#aaa" }}>Loading dataset...</p>
+                  <p style={{ fontSize: "18px", color: "#fff" }}>
+                    {pageTransitioning ? "Loading page..." : "Loading dataset..."}
+                  </p>
                 </div>
-              ) : null}
-              <div 
-                id="luckysheet-container" 
-                className="spreadsheet-container"
-                style={{ 
-                  display: datasetLoading ? 'none' : 'block',
-                  width: '100%',
-                  height: '100%'
-                }}
-              ></div>
+              )}
+              
+              <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                <div 
+                  id="luckysheet-container" 
+                  className="spreadsheet-container"
+                  style={{ 
+                    flex: 1,
+                    width: '100%',
+                    opacity: (datasetLoading || pageTransitioning) ? 0.5 : 1,
+                    transition: "opacity 0.2s ease"
+                  }}
+                ></div>
+
+                {!datasetLoading && totalRows > SPREADSHEET_PAGE_SIZE && (
+                  <div className="pagination-container">
+                    <div className="pagination-info">
+                      Showing rows {startRow.toLocaleString()}-{endRow.toLocaleString()} of {totalRows.toLocaleString()}
+                      <span style={{ marginLeft: '12px', opacity: 0.7 }}>
+                        (Page {currentPage + 1} of {totalPages})
+                      </span>
+                    </div>
+                    
+                    <div className="pagination-controls">
+                      <button
+                        onClick={handlePreviousPage}
+                        disabled={!hasPrevious || datasetLoading || pageTransitioning || loadingRef.current}
+                        className="btn-pagination"
+                        title="PageUp"
+                      >
+                        ← Previous
+                      </button>
+                      
+                      <div className="pagination-jump">
+                        <input
+                          type="number"
+                          min="1"
+                          max={totalPages}
+                          value={currentPage + 1}
+                          onChange={(e) => {
+                            const page = parseInt(e.target.value) - 1;
+                            if (!isNaN(page)) {
+                              handleGoToPage(page);
+                            }
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="page-input"
+                          disabled={datasetLoading || pageTransitioning || loadingRef.current}
+                        />
+                        <span>of {totalPages}</span>
+                      </div>
+                      
+                      <button
+                        onClick={handleNextPage}
+                        disabled={!hasNext || datasetLoading || pageTransitioning || loadingRef.current}
+                        className="btn-pagination"
+                        title="PageDown"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -854,9 +1144,7 @@ const App: React.FC = () => {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>📁 Your Datasets</h2>
-                <button onClick={() => setShowDatasetPicker(false)} className="modal-close">
-                  ✕
-                </button>
+                <button onClick={() => setShowDatasetPicker(false)} className="modal-close">✕</button>
               </div>
 
               <input
@@ -884,20 +1172,33 @@ const App: React.FC = () => {
                   filteredDatasets.map((dataset) => (
                     <div
                       key={dataset.id}
-                      className={`dataset-item ${
-                        selectedDataset === dataset.id ? "dataset-item-selected" : ""
-                      }`}
+                      className={`dataset-item ${selectedDataset === dataset.id ? "dataset-item-selected" : ""}`}
                     >
                       <div className="dataset-info" onClick={() => {
                         setSelectedDataset(dataset.id);
                         setShowDatasetPicker(false);
+                        setCurrentPage(0); // Reset to first page
                       }}>
-                        <div className="dataset-name">{dataset.filename}</div>
+                        <div className="dataset-name">
+                          {dataset.filename}
+                          {dataset.storage_format === "parquet" && (
+                            <span style={{ 
+                              marginLeft: "8px", 
+                              fontSize: "11px", 
+                              background: "#10b981", 
+                              color: "white", 
+                              padding: "2px 6px", 
+                              borderRadius: "4px" 
+                            }}>
+                              Parquet
+                            </span>
+                          )}
+                        </div>
                         <div className="dataset-meta">
                           {dataset.status === "ready" && dataset.row_count ? (
                             <>
-                              {(dataset.row_count || 0).toLocaleString()} rows •{" "}
-                              {dataset.column_count} columns •{" "}
+                              {(dataset.row_count || 0).toLocaleString()} rows • {" "}
+                              {dataset.column_count} columns • {" "}
                               {(dataset.size_bytes / (1024 * 1024)).toFixed(1)} MB
                             </>
                           ) : dataset.status === "analyzing" ? (
@@ -909,7 +1210,7 @@ const App: React.FC = () => {
                           )}
                         </div>
                         <div className="dataset-date">
-                          {new Date(dataset.uploaded_at).toLocaleString()}
+                          {new Date(dataset.uploaded_at || dataset.created_at || '').toLocaleString()}
                         </div>
                       </div>
                       <button
@@ -937,13 +1238,7 @@ const App: React.FC = () => {
             <div className="modal modal-large" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>💻 SQL Query</h2>
-                <button 
-                  onClick={() => setShowSQLModal(false)} 
-                  className="modal-close"
-                  disabled={queryLoading}
-                >
-                  ✕
-                </button>
+                <button onClick={() => setShowSQLModal(false)} className="modal-close" disabled={queryLoading}>✕</button>
               </div>
 
               <textarea
@@ -953,27 +1248,25 @@ const App: React.FC = () => {
                 placeholder="SELECT * FROM data LIMIT 100"
                 rows={10}
                 disabled={queryLoading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    executeSQLQuery();
+                  }
+                }}
               />
 
               <div className="modal-footer">
-                <button 
-                  onClick={() => setShowSQLModal(false)} 
-                  className="btn-secondary"
-                  disabled={queryLoading}
-                >
+                <button onClick={() => setShowSQLModal(false)} className="btn-secondary" disabled={queryLoading}>
                   Cancel
                 </button>
-                <button
-                  onClick={executeSQLQuery}
-                  className="btn-primary"
-                  disabled={queryLoading}
-                >
-                  {queryLoading ? "Running..." : "Run Query"}
+                <button onClick={executeSQLQuery} className="btn-primary" disabled={queryLoading || !sqlQuery.trim()}>
+                  {queryLoading ? "Running..." : "Run Query (Ctrl+Enter)"}
                 </button>
               </div>
 
               <div className="modal-hint">
-                💡 Use 'data' as the table name. Only SELECT queries allowed for security.
+                💡 Use 'data' as the table name. Only SELECT queries allowed. Press Ctrl+Enter to run.
               </div>
             </div>
           </div>
@@ -985,13 +1278,7 @@ const App: React.FC = () => {
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-header">
                 <h2>🤖 AI Chat</h2>
-                <button 
-                  onClick={() => setShowAIModal(false)} 
-                  className="modal-close"
-                  disabled={queryLoading}
-                >
-                  ✕
-                </button>
+                <button onClick={() => setShowAIModal(false)} className="modal-close" disabled={queryLoading}>✕</button>
               </div>
 
               <div className="ai-info">
@@ -1006,47 +1293,36 @@ const App: React.FC = () => {
                 placeholder="What are the top 10 rows sorted by revenue?"
                 rows={4}
                 disabled={queryLoading}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    executeAIQuery();
+                  }
+                }}
               />
 
               <div className="modal-footer">
-                <button 
-                  onClick={() => setShowAIModal(false)} 
-                  className="btn-secondary"
-                  disabled={queryLoading}
-                >
+                <button onClick={() => setShowAIModal(false)} className="btn-secondary" disabled={queryLoading}>
                   Cancel
                 </button>
-                <button
-                  onClick={executeAIQuery}
-                  className="btn-primary"
-                  disabled={queryLoading || !aiQuestion.trim()}
-                >
-                  {queryLoading ? "Thinking..." : "Ask AI"}
+                <button onClick={executeAIQuery} className="btn-primary" disabled={queryLoading || !aiQuestion.trim()}>
+                  {queryLoading ? "Thinking..." : "Ask AI (Ctrl+Enter)"}
                 </button>
               </div>
 
               <div className="modal-examples">
                 <div className="examples-title">Example questions:</div>
-                <button
-                  onClick={() => setAiQuestion("Show me the top 10 rows by revenue")}
-                  className="example-btn"
-                  disabled={queryLoading}
-                >
+                <button onClick={() => setAiQuestion("Show me the top 10 rows by revenue")} className="example-btn" disabled={queryLoading}>
                   Show me the top 10 rows by revenue
                 </button>
-                <button
-                  onClick={() => setAiQuestion("What's the average value in the price column?")}
-                  className="example-btn"
-                  disabled={queryLoading}
-                >
+                <button onClick={() => setAiQuestion("What's the average value in the price column?")} className="example-btn" disabled={queryLoading}>
                   What's the average value in the price column?
                 </button>
-                <button
-                  onClick={() => setAiQuestion("Group by category and count rows")}
-                  className="example-btn"
-                  disabled={queryLoading}
-                >
+                <button onClick={() => setAiQuestion("Group by category and count rows")} className="example-btn" disabled={queryLoading}>
                   Group by category and count rows
+                </button>
+                <button onClick={() => setAiQuestion("Find all records where amount > 1000 and status = 'completed'")} className="example-btn" disabled={queryLoading}>
+                  Find high-value completed transactions
                 </button>
               </div>
             </div>

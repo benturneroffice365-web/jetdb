@@ -1,4 +1,4 @@
-/* JetDB v8.0 - Premium Polished Frontend */
+/* JetDB v8.1 - Premium Polished Frontend with Pagination */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -240,7 +240,7 @@ body {
 }
 
 .feature-item::before {
-  content: '✓';
+  content: '✔';
   display: inline-block;
   width: 20px;
   height: 20px;
@@ -542,6 +542,95 @@ button:disabled {
 #luckysheet-container {
   width: 100%;
   height: 100%;
+}
+
+/* ============================================================================
+   PAGINATION CONTROLS
+   ============================================================================ */
+
+.pagination-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 24px;
+  background: var(--color-bg-card);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.btn-pagination {
+  padding: 8px 16px;
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  font-family: inherit;
+}
+
+.btn-pagination:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+
+.btn-pagination:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.pagination-jump {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+}
+
+.page-input {
+  width: 60px;
+  padding: 6px 10px;
+  border: 2px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  transition: all var(--transition-fast);
+  font-family: inherit;
+}
+
+.page-input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.page-input::-webkit-inner-spin-button,
+.page-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.page-input[type=number] {
+  -moz-appearance: textfield;
 }
 
 /* ============================================================================
@@ -855,61 +944,4 @@ button:disabled {
   border: 3px solid var(--color-bg-dark);
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-light);
-}
-
-/* ============================================================================
-   RESPONSIVE
-   ============================================================================ */
-
-@media (max-width: 768px) {
-  .header {
-    flex-direction: column;
-    gap: 12px;
-    padding: 12px 16px;
-  }
-
-  .header-left,
-  .header-right {
-    width: 100%;
-    justify-content: space-between;
-  }
-
-  .dropzone-features {
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .modal {
-    max-width: 100%;
-    max-height: 95vh;
-    border-radius: 16px;
-  }
-
-  .auth-box {
-    padding: 32px;
-  }
-
-  .auth-header h1 {
-    font-size: 40px;
-  }
-}
-
-/* ============================================================================
-   AUTH LOADER
-   ============================================================================ */
-
-.auth-loader {
-  text-align: center;
-  padding: 40px;
-}
-
-.auth-loader .spinner {
-  margin: 0 auto;
-}
-
-.auth-loader p {
-  margin-top: 16px;
-  color: var(--color-text-secondary);
-}
+::-webkit-scrollbar-thumb:hover
