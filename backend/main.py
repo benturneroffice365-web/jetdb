@@ -7,6 +7,7 @@ NEW IN v10.0.0:
 ✅ Skip CSV upload for large files option (2x faster for >100MB)
 ✅ Better progress tracking for uploads
 ✅ Optimized Azure blob upload with connection pooling
+✅ Dataset merge endpoint with streaming
 
 ALL PREVIOUS FEATURES INCLUDED:
 ✅ 1-15: All critical fixes from v9.0.0
@@ -277,7 +278,7 @@ def delete_from_blob(blob_path: str):
             blob=blob_name
         )
         blob_client.delete_blob()
-        logger.info(f"🗑️  Deleted from blob: {blob_name}")
+        logger.info(f"🗑️ Deleted from blob: {blob_name}")
     except Exception as e:
         logger.warning(f"Blob delete failed (may not exist): {e}")
 
@@ -678,6 +679,7 @@ def read_root():
             "Parallel Upload & Parquet Conversion (40% faster)",
             "Streaming Large Files (lower memory usage)",
             "Auto-skip CSV for files >100MB (2x faster)",
+            "Dataset Merge with Streaming",
             "OpenAI Natural Language Queries",
             "Rate Limiting",
             "Spreadsheet State Persistence",
@@ -688,6 +690,7 @@ def read_root():
             "health": "GET /health",
             "upload": "POST /upload (auth required)",
             "datasets": "GET /datasets (auth required)",
+            "merge": "POST /datasets/merge (auth required)",
             "query_sql": "POST /query/sql (auth required)",
             "query_natural": "POST /query/natural (auth required)"
         }
@@ -985,7 +988,7 @@ async def delete_dataset(
         # Delete from Supabase
         supabase.table('datasets').delete().eq('id', dataset_id).eq('user_id', user_id).execute()
         
-        logger.info(f"🗑️  Deleted dataset {dataset_id} by user {user_id}")
+        logger.info(f"🗑️ Deleted dataset {dataset_id} by user {user_id}")
         
         return {
             "success": True,
@@ -1152,6 +1155,126 @@ async def natural_language_query(
                 pass
 
 # ============================================================================
+# DATASET MERGE ENDPOINT (NEW IN v10.0.0)
+# ============================================================================
+
+@app.post("/datasets/merge")
+async def merge_datasets(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    dataset_ids: List[str],
+    merged_name: str,
+    user_id: str = Depends(get_current_user)
+):
+    """Merge multiple datasets with streaming"""
+    
+    if len(dataset_ids) < 2:
+        raise HTTPException(400, detail="Need at least 2 datasets to merge")
+    
+    # Verify ownership and get datasets
+    datasets = []
+    for ds_id in dataset_ids:
+        dataset = get_dataset_from_db(ds_id, user_id)
+        datasets.append(dataset)
+    
+    # Validate schemas match
+    first_cols = set(datasets[0]['columns'])
+    for ds in datasets[1:]:
+        if set(ds['columns']) != first_cols:
+            missing = first_cols - set(ds['columns'])
+            extra = set(ds['columns']) - first_cols
+            raise HTTPException(400, detail={
+                "error": "Schema mismatch",
+                "missing": list(missing),
+                "extra": list(extra)
+            })
+    
+    conn = None
+    merged_id = str(uuid.uuid4())
+    
+    try:
+        logger.info(f"🔄 Merging {len(dataset_ids)} datasets for user {user_id}")
+        start_time = time.time()
+        
+        conn = create_duckdb_connection_with_azure()
+        
+        # Build UNION ALL query
+        union_parts = []
+        for ds in datasets:
+            auth_url = get_authenticated_blob_url(ds['blob_path'])
+            union_parts.append(f"SELECT * FROM '{auth_url}'")
+        
+        union_query = " UNION ALL ".join(union_parts)
+        
+        # Create temp parquet file
+        temp_merged = tempfile.NamedTemporaryFile(suffix='.parquet', delete=False)
+        temp_merged.close()
+        
+        # Stream merge to parquet
+        conn.execute(f"""
+            COPY ({union_query})
+            TO '{temp_merged.name}'
+            (FORMAT PARQUET, COMPRESSION ZSTD)
+        """)
+        
+        # Get row count
+        total_rows = conn.execute(f"SELECT COUNT(*) FROM ({union_query})").fetchone()[0]
+        
+        # Upload to blob
+        merged_filename = f"{merged_name}.parquet"
+        merged_url = upload_to_blob_streaming(
+            merged_id,
+            temp_merged.name,
+            merged_filename,
+            "application/octet-stream"
+        )
+        
+        merge_time = time.time() - start_time
+        
+        # Save to database
+        merged_record = {
+            "id": merged_id,
+            "user_id": user_id,
+            "filename": merged_filename,
+            "blob_path": merged_url,
+            "size_bytes": os.path.getsize(temp_merged.name),
+            "row_count": total_rows,
+            "column_count": len(datasets[0]['columns']),
+            "columns": datasets[0]['columns'],
+            "status": "ready",
+            "storage_format": "parquet",
+            "created_at": datetime.now().isoformat()
+        }
+        
+        supabase.table('datasets').insert(merged_record).execute()
+        
+        # Cleanup
+        os.unlink(temp_merged.name)
+        
+        logger.info(
+            f"✅ Merge complete: {total_rows:,} rows in {merge_time:.1f}s "
+            f"({total_rows/merge_time:.0f} rows/s)"
+        )
+        
+        return {
+            "success": True,
+            "dataset_id": merged_id,
+            "row_count": total_rows,
+            "merge_time_seconds": round(merge_time, 1),
+            "message": f"Merged {len(datasets)} datasets successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Merge failed: {e}")
+        raise HTTPException(500, detail=str(e))
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+# ============================================================================
 # STARTUP EVENT
 # ============================================================================
 
@@ -1159,11 +1282,11 @@ async def natural_language_query(
 async def startup_event():
     """Log startup info"""
     logger.info(f"""
-╔═══════════════════════════════════════════╗
+╔═══════════════════════════════════════╗
 ║           JetDB v{VERSION}                 ║
 ║       Optimized Upload System             ║
 ║       40% Faster • Lower Memory           ║
-╚═══════════════════════════════════════════╝
+╚═══════════════════════════════════════╝
     """)
     logger.info("✅ Environment validated")
     logger.info("✅ JWT Authentication enabled")
@@ -1182,6 +1305,7 @@ async def startup_event():
     logger.info("✅ Request ID tracking enabled")
     logger.info("✅ Parallel upload/conversion enabled")
     logger.info(f"✅ Auto-skip CSV for files >{SKIP_CSV_THRESHOLD_MB}MB")
+    logger.info("✅ Dataset merge endpoint enabled")
     logger.info("🚀 Ready for production deployment")
 
 # ============================================================================

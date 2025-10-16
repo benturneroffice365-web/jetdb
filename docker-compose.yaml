@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # ============================================================================
+  # Backend API Service
+  # ============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jetdb-backend
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      # Mount source code for hot reload in development
+      - ./backend:/app
+      # Preserve Python packages
+      - backend-venv:/app/.venv
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - jetdb-network
+
+  # ============================================================================
+  # Frontend Service
+  # ============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development  # Use 'production' for production builds
+      args:
+        - REACT_APP_SUPABASE_URL=${REACT_APP_SUPABASE_URL}
+        - REACT_APP_SUPABASE_KEY=${REACT_APP_SUPABASE_KEY}
+        - REACT_APP_API_BASE=http://localhost:8000
+    container_name: jetdb-frontend
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env.local
+    volumes:
+      # Mount source code for hot reload in development
+      - ./frontend:/app
+      # Preserve node_modules
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - jetdb-network
+    stdin_open: true
+    tty: true
+
+# ============================================================================
+# Named Volumes
+# ============================================================================
+volumes:
+  backend-venv:
+    driver: local
+  frontend-node-modules:
+    driver: local
+
+# ============================================================================
+# Networks
+# ============================================================================
+networks:
+  jetdb-network:
+    driver: bridge

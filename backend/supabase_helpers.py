@@ -13,7 +13,8 @@ logger = logging.getLogger(__name__)
 
 # Initialize Supabase client
 SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+# FIXED: Changed from SUPABASE_SERVICE_KEY to SUPABASE_KEY to match main.py
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
 def get_supabase_client() -> Client:
     """Get Supabase client instance"""
