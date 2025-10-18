@@ -1,5 +1,4 @@
-#11. frontend/src/components/MergeModal.tsx - NEW
-tsximport React, { useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 

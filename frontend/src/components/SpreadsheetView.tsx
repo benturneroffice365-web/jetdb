@@ -1,5 +1,4 @@
-#1. frontend/src/components/SpreadsheetView.tsx
-tsximport React from 'react';
+import React from 'react';
 import { HotTable } from '@handsontable/react';
 import 'handsontable/dist/handsontable.full.min.css';
 import Handsontable from 'handsontable';

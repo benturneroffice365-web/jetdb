@@ -1,0 +1,37 @@
+issues log:
+<symbols> Ask AI -> JetAI
+<symbols> Run SQL -> Execute SQL
+buttons not working
+
+dataset management -> old/corrupt files; merge presentation (should say select datasets to merge with check boxes, then if the schema/columns don't match, just a message that says "Columns Don't Match. You can only merge datasets with identical columns"
+
+'Datasets' shows zero, then when attempt to upload it shows (3)
+
+Advise users to connect to Google Drive, OneDrive, and GitHub for datasts "over X size/rows"
+
+2 million rows takes 1-2 minutes to render. This needs to be faster. Remember speed on massive datasets is the tagline
+
+It needs to appear like the whole thing loaded, up to a million, then paginate (we'll see how users like in Beta). Not acceptable: 📊 Showing first 10,000 rows of 2,000,000 - Use Query mode for full analysis
+
+needs to break out in tabs with query and AI 
+
+
+"The first billion row spreadsheet"
+
+Here's how I want AI and Query to look. They need to be two separate buttons, toggles for menu bar. can have both on at same time. query, ai or sql editor, pops results into new tabs
+
+what else from roadmap needs to go at this time.
+
+
+To do in next session:
+1) Fix issues 
+2) Test
+3) Migrate to cloud
+4) Test
+5) Ship
+
+
+
+
+
+ 

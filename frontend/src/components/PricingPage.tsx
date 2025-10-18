@@ -1,5 +1,4 @@
-#3. frontend/src/components/PricingPage.tsx
-tsximport React, { useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 

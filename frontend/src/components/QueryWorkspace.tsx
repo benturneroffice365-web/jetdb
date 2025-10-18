@@ -1,5 +1,4 @@
-#10. frontend/src/components/QueryWorkspace.tsx - NEW
-tsximport React, { useState } from 'react';
+import React, { useState } from 'react';
 import axios from 'axios';
 import { HotTable } from '@handsontable/react';
 import toast from 'react-hot-toast';

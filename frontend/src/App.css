@@ -1,5 +1,7 @@
-#4. frontend/src/App.css
-css/* JetDB v8.0 Styles */
+/* ============================================================================
+   App.css - JetDB v8.0 Complete Styling
+   ============================================================================ */
+
 * {
   margin: 0;
   padding: 0;
@@ -12,26 +14,30 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #0f0f1a;
+  background: #0a0a0f;
   color: #e4e4e7;
 }
 
 .app {
-  height: 100vh;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  height: 100vh;
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 100%);
 }
 
-/* Header */
+/* ============================================================================
+   HEADER
+   ============================================================================ */
+
 .header {
-  background: #1a1a24;
-  border-bottom: 1px solid #2d2d44;
-  padding: 16px 24px;
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  flex-shrink: 0;
+  align-items: center;
+  padding: 16px 24px;
+  background: rgba(26, 26, 36, 0.8);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid #2d2d44;
+  z-index: 100;
 }
 
 .header-left {
@@ -49,16 +55,20 @@ body {
 .logo {
   font-size: 24px;
   font-weight: 700;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
   margin: 0;
-  color: #fff;
 }
 
 .version {
-  background: #6366f1;
-  color: #fff;
   padding: 4px 12px;
+  background: rgba(99, 102, 241, 0.2);
+  border: 1px solid #6366f1;
   border-radius: 6px;
   font-size: 12px;
+  color: #a5b4fc;
   font-weight: 600;
 }
 
@@ -67,88 +77,156 @@ body {
   align-items: center;
   gap: 12px;
   padding: 8px 16px;
-  background: #24243a;
+  background: rgba(45, 45, 68, 0.5);
   border-radius: 8px;
   font-size: 14px;
-  color: #e4e4e7;
 }
 
 .row-count {
-  color: #a1a1aa;
+  padding: 2px 8px;
+  background: rgba(16, 185, 129, 0.2);
+  border: 1px solid #10b981;
+  border-radius: 4px;
   font-size: 12px;
+  color: #6ee7b7;
+  font-weight: 600;
 }
 
-/* Buttons */
-.btn-primary {
-  background: #6366f1;
-  color: #fff;
-  border: none;
+/* ============================================================================
+   BUTTONS
+   ============================================================================ */
+
+.btn-primary, .btn-secondary {
   padding: 10px 20px;
+  border: none;
   border-radius: 8px;
-  font-size: 14px;
   font-weight: 600;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #5558e3;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
 }
 
 .btn-primary:disabled {
-  background: #3d3d54;
-  cursor: not-allowed;
   opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #24243a;
-  color: #fff;
+  background: rgba(61, 61, 84, 0.8);
+  color: #e4e4e7;
+  border: 1px solid #3d3d54;
+}
+
+.btn-secondary:hover {
+  background: rgba(77, 77, 100, 0.8);
+  border-color: #4d4d64;
+}
+
+/* ============================================================================
+   AUTH SCREEN
+   ============================================================================ */
+
+.auth-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 100%);
+}
+
+.auth-box {
+  width: 100%;
+  max-width: 400px;
+  padding: 40px;
+  background: rgba(26, 26, 36, 0.8);
+  backdrop-filter: blur(10px);
   border: 1px solid #2d2d44;
-  padding: 10px 20px;
+  border-radius: 16px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.auth-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: rgba(36, 36, 58, 0.8);
+  border: 1px solid #2d2d44;
   border-radius: 8px;
+  color: #e4e4e7;
   font-size: 14px;
+  transition: all 0.2s;
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.auth-button {
+  width: 100%;
+  padding: 12px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  border: none;
+  border-radius: 8px;
+  color: white;
   font-weight: 600;
+  font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.btn-secondary:hover {
-  background: #2d2d44;
+.auth-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
 }
 
-/* Main Content */
+/* ============================================================================
+   MAIN CONTENT
+   ============================================================================ */
+
 .main-content {
   flex: 1;
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
+  padding: 24px;
 }
 
-/* Dropzone */
+/* ============================================================================
+   DROPZONE
+   ============================================================================ */
+
 .dropzone {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  border: 2px dashed #2d2d44;
-  border-radius: 12px;
-  margin: 24px;
-  padding: 60px 40px;
+  height: 100%;
+  border: 3px dashed #3d3d54;
+  border-radius: 16px;
+  background: rgba(26, 26, 36, 0.5);
   cursor: pointer;
   transition: all 0.3s;
-  background: #1a1a24;
 }
 
 .dropzone:hover {
   border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.05);
+  background: rgba(36, 36, 58, 0.5);
+  transform: scale(1.02);
 }
 
 .dropzone-active {
-  border-color: #6366f1;
-  background: rgba(99, 102, 241, 0.1);
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  transform: scale(1.05);
 }
 
 .dropzone-icon {
@@ -157,125 +235,375 @@ body {
 }
 
 .dropzone h2 {
-  margin: 0 0 12px 0;
   font-size: 24px;
-  color: #fff;
+  font-weight: 700;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .dropzone p {
-  margin: 0;
   color: #a1a1aa;
   font-size: 14px;
 }
 
+/* ============================================================================
+   UPLOAD PROGRESS
+   ============================================================================ */
+
 .upload-progress {
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
 }
 
-.upload-progress .spinner {
+.spinner {
   width: 48px;
   height: 48px;
   border: 4px solid #2d2d44;
   border-top-color: #6366f1;
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 16px;
 }
 
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* Auth Container */
-.auth-container {
-  height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #0f0f1a;
+/* ============================================================================
+   HANDSONTABLE SPREADSHEET STYLING
+   ============================================================================ */
+
+/* Main container */
+.main-content > div {
+  height: 100%;
+  background: rgba(26, 26, 36, 0.8);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
-.auth-box {
-  background: #1a1a24;
-  border: 1px solid #2d2d44;
-  border-radius: 16px;
-  padding: 48px;
-  width: 100%;
-  max-width: 400px;
+/* Base spreadsheet */
+.jetdb-spreadsheet.handsontable {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  font-size: 13px;
+  color: #e4e4e7 !important;
+  background: #1a1a24 !important;
+}
+
+/* Column headers */
+.handsontable thead th {
+  background: #2d2d44 !important;
+  color: #e4e4e7 !important;
+  border-color: #3d3d54 !important;
+  font-weight: 600;
   text-align: center;
 }
 
-.auth-input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid #2d2d44;
-  border-radius: 8px;
-  background: #24243a;
-  color: #fff;
-  font-size: 14px;
-  transition: all 0.2s;
-}
-
-.auth-input:focus {
-  outline: none;
-  border-color: #6366f1;
-}
-
-.auth-button {
-  width: 100%;
-  padding: 12px;
-  background: #6366f1;
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  font-size: 14px;
+/* Row headers (row numbers on left) */
+.handsontable .ht_clone_left thead th,
+.handsontable .ht_clone_top_left_corner thead th,
+.handsontable tbody th {
+  background: #2d2d44 !important;
+  color: #a1a1aa !important;
+  border-color: #3d3d54 !important;
   font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
+  text-align: center;
 }
 
-.auth-button:hover {
-  background: #5558e3;
-}
-
-/* Spreadsheet Container */
-.spreadsheet-container {
-  width: 100%;
-  height: 100%;
-  background: #1a1a24;
-}
-
-/* Handsontable overrides */
-.handsontable {
-  color: #e4e4e7;
-}
-
-.handsontable th {
-  background: #24243a;
-  color: #a1a1aa;
-  border-color: #2d2d44;
-}
-
+/* Regular cells */
 .handsontable td {
-  background: #1a1a24;
-  border-color: #2d2d44;
+  background: #1a1a24 !important;
+  color: #e4e4e7 !important;
+  border-color: #2d2d44 !important;
 }
 
+/* Empty cells */
+.handsontable td.htEmpty {
+  background: #1a1a24 !important;
+  color: #5a5a6a !important;
+}
+
+/* Null/placeholder cells */
+.handsontable td.htPlaceholder {
+  color: #5a5a6a !important;
+}
+
+/* Selected cells */
 .handsontable td.area {
-  background: rgba(99, 102, 241, 0.1);
+  background: rgba(99, 102, 241, 0.2) !important;
 }
 
-/* Loading States */
-.loading-spinner {
+/* Currently active cell */
+.handsontable td.current {
+  background: rgba(99, 102, 241, 0.3) !important;
+  border: 2px solid #6366f1 !important;
+}
+
+/* Highlighted selection */
+.handsontable td.highlight {
+  background: rgba(99, 102, 241, 0.15) !important;
+}
+
+/* Row hover effect */
+.handsontable tbody tr:hover td {
+  background: #24243a !important;
+}
+
+/* Active cell being edited */
+.handsontable td.htDimmed {
+  background: #24243a !important;
+}
+
+/* Autocomplete arrow */
+.handsontable .htAutocompleteArrow,
+.handsontable .htExpandButton {
+  color: #a1a1aa !important;
+}
+
+/* Fill handle (bottom-right corner for dragging) */
+.handsontable .wtBorder.corner {
+  background: #6366f1 !important;
+  border: 2px solid #6366f1 !important;
+  width: 8px !important;
+  height: 8px !important;
+}
+
+/* Selection border */
+.handsontable .wtBorder {
+  background: #6366f1 !important;
+}
+
+.handsontable .wtBorder.current {
+  border: 2px solid #6366f1 !important;
+}
+
+.handsontable .wtBorder.area {
+  border: 1px solid #6366f1 !important;
+}
+
+/* ============================================================================
+   CONTEXT MENU
+   ============================================================================ */
+
+.htContextMenu {
+  background: #24243a !important;
+  border: 1px solid #3d3d54 !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
+}
+
+.htContextMenu table.htCore {
+  background: #24243a !important;
+}
+
+.htContextMenu .ht_master tbody td {
+  background: #24243a !important;
+  color: #e4e4e7 !important;
+  border-color: #2d2d44 !important;
+  padding: 8px 12px !important;
+}
+
+.htContextMenu .ht_master tbody td:hover {
+  background: #3d3d54 !important;
+}
+
+.htContextMenu .ht_master tbody td.htDisabled {
+  color: #5a5a6a !important;
+}
+
+.htContextMenu .ht_master tbody td.htSeparator {
+  border-top: 1px solid #3d3d54 !important;
+}
+
+/* ============================================================================
+   DROPDOWN MENU
+   ============================================================================ */
+
+.htDropdownMenu {
+  background: #24243a !important;
+  border: 1px solid #3d3d54 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+.htDropdownMenu table.htCore {
+  background: #24243a !important;
+}
+
+.htDropdownMenu .ht_master tbody td {
+  background: #24243a !important;
+  color: #e4e4e7 !important;
+  padding: 6px 12px !important;
+}
+
+.htDropdownMenu .ht_master tbody td:hover {
+  background: #3d3d54 !important;
+}
+
+/* ============================================================================
+   FILTERS
+   ============================================================================ */
+
+.htUIInput,
+.htUISelect,
+.htUIButton {
+  background: #24243a !important;
+  color: #e4e4e7 !important;
+  border: 1px solid #3d3d54 !important;
+}
+
+.htUIInput:focus,
+.htUISelect:focus {
+  outline: none !important;
+  border-color: #6366f1 !important;
+}
+
+.htUIButton:hover {
+  background: #3d3d54 !important;
+}
+
+/* ============================================================================
+   SCROLLBARS
+   ============================================================================ */
+
+.handsontable .wtHolder::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-track {
+  background: #1a1a24;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-thumb {
+  background: #3d3d54;
+  border-radius: 6px;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+  background: #4d4d64;
+}
+
+.handsontable .wtHolder::-webkit-scrollbar-corner {
+  background: #1a1a24;
+}
+
+/* ============================================================================
+   FORMULA BAR
+   ============================================================================ */
+
+.formula-bar {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 40px;
-  font-size: 16px;
-  color: #a1a1aa;
+  padding: 8px 16px;
+  background: #24243a;
+  border-bottom: 1px solid #2d2d44;
+  gap: 12px;
 }
 
-/* Responsive */
+.formula-bar input {
+  flex: 1;
+  padding: 8px 12px;
+  background: #1a1a24;
+  border: 1px solid #2d2d44;
+  border-radius: 6px;
+  color: #e4e4e7;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.formula-bar input:focus {
+  outline: none;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.cell-reference {
+  padding: 6px 12px;
+  background: #3d3d54;
+  border: 1px solid #4d4d64;
+  border-radius: 4px;
+  color: #e4e4e7;
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 60px;
+  text-align: center;
+}
+
+/* ============================================================================
+   CELL EDITOR
+   ============================================================================ */
+
+.handsontableInput {
+  background: #24243a !important;
+  color: #e4e4e7 !important;
+  border: 2px solid #6366f1 !important;
+  padding: 4px 8px !important;
+  font-size: 13px !important;
+}
+
+.handsontableInputHolder {
+  background: #24243a !important;
+}
+
+/* ============================================================================
+   COPY/PASTE OVERLAY
+   ============================================================================ */
+
+.htCopyPaste {
+  background: rgba(99, 102, 241, 0.2) !important;
+}
+
+/* ============================================================================
+   COMMENTS
+   ============================================================================ */
+
+.htComments {
+  background: #24243a !important;
+  border: 1px solid #3d3d54 !important;
+  color: #e4e4e7 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+.htCommentTextArea {
+  background: #1a1a24 !important;
+  color: #e4e4e7 !important;
+  border: 1px solid #2d2d44 !important;
+}
+
+/* ============================================================================
+   VALIDATION ERRORS
+   ============================================================================ */
+
+.htInvalid {
+  background: rgba(239, 68, 68, 0.2) !important;
+}
+
+/* ============================================================================
+   READ-ONLY CELLS
+   ============================================================================ */
+
+.handsontable td.htReadOnly {
+  background: rgba(45, 45, 68, 0.5) !important;
+  color: #a1a1aa !important;
+}
+
+/* ============================================================================
+   LOADING OVERLAY
+   ============================================================================ */
+
+.handsontable .wtSpreader::after {
+  background: rgba(26, 26, 36, 0.9) !important;
+  color: #e4e4e7 !important;
+}
+
+/* ============================================================================
+   RESPONSIVE ADJUSTMENTS
+   ============================================================================ */
+
 @media (max-width: 768px) {
   .header {
     padding: 12px 16px;
@@ -285,108 +613,71 @@ body {
     gap: 8px;
   }
 
-  .current-file {
-    display: none;
+  .header-right {
+    gap: 8px;
   }
 
   .logo {
     font-size: 20px;
   }
 
-  .btn-primary,
-  .btn-secondary {
+  .main-content {
+    padding: 16px;
+  }
+
+  .btn-primary, .btn-secondary {
     padding: 8px 16px;
     font-size: 13px;
   }
+}
 
-  .dropzone {
-    margin: 16px;
-    padding: 40px 20px;
+/* ============================================================================
+   UTILITY CLASSES
+   ============================================================================ */
+
+.text-center {
+  text-align: center;
+}
+
+.mt-1 { margin-top: 0.5rem; }
+.mt-2 { margin-top: 1rem; }
+.mt-3 { margin-top: 1.5rem; }
+.mt-4 { margin-top: 2rem; }
+
+.mb-1 { margin-bottom: 0.5rem; }
+.mb-2 { margin-bottom: 1rem; }
+.mb-3 { margin-bottom: 1.5rem; }
+.mb-4 { margin-bottom: 2rem; }
+
+.p-1 { padding: 0.5rem; }
+.p-2 { padding: 1rem; }
+.p-3 { padding: 1.5rem; }
+.p-4 { padding: 2rem; }
+
+/* ============================================================================
+   PRINT STYLES
+   ============================================================================ */
+
+@media print {
+  .header,
+  .btn-primary,
+  .btn-secondary,
+  .formula-bar {
+    display: none !important;
   }
 
-  .auth-box {
-    padding: 32px;
-    margin: 20px;
+  .main-content {
+    padding: 0 !important;
+  }
+
+  .handsontable {
+    background: white !important;
+  }
+
+  .handsontable td,
+  .handsontable th {
+    color: black !important;
+    background: white !important;
+    border-color: #ccc !important;
   }
 }
-
-/* Toaster overrides */
-.Toaster__toast {
-  background: #1a1a24 !important;
-  color: #e4e4e7 !important;
-  border: 1px solid #2d2d44 !important;
-}
-
-.Toaster__toast--success {
-  border-color: #10b981 !important;
-}
-
-.Toaster__toast--error {
-  border-color: #ef4444 !important;
-}
-
-Missing Files You Also Need
-Looking at the Complete_MVP_Package doc more carefully, you're also missing:
-5. backend/tests/test_security.py
-This is referenced in the docs but wasn't provided. Here it is:
-pythonimport pytest
-from fastapi.testclient import TestClient
-from main import app, validate_sql_safety
-
-client = TestClient(app)
-
-def test_sql_injection_blocked():
-    """Test that SQL injection attempts are blocked"""
-    malicious_queries = [
-        "SELECT * FROM data; DROP TABLE users;",
-        "SELECT * FROM data WHERE id = 1 OR 1=1",
-        "SELECT * FROM data; DELETE FROM users;",
-        "SELECT * FROM data UNION SELECT * FROM users"
-    ]
-    
-    for query in malicious_queries:
-        is_safe, _ = validate_sql_safety(query)
-        assert not is_safe, f"Should block: {query}"
-
-def test_cors_policy():
-    """Test CORS is restricted to allowed origins"""
-    response = client.get("/health", headers={"Origin": "https://evil.com"})
-    assert "access-control-allow-origin" not in response.headers or \
-           response.headers.get("access-control-allow-origin") != "https://evil.com"
-
-def test_rate_limiting():
-    """Test rate limits are enforced"""
-    # Make 11 rapid requests (limit is 10/minute)
-    for i in range(11):
-        response = client.post("/query/sql", json={
-            "sql": "SELECT 1",
-            "dataset_id": "test"
-        })
-    
-    assert response.status_code == 429
-    assert "too many requests" in response.json()["detail"].lower()
-
-def test_file_upload_validation():
-    """Test malicious files are blocked"""
-    # Simulate malicious file (executable disguised as CSV)
-    files = {
-        "file": ("malware.exe", b"MZ\x90\x00", "application/x-msdownload")
-    }
-    response = client.post("/upload", files=files)
-    assert response.status_code == 400
-    assert "invalid file type" in response.json()["detail"].lower()
-
-def test_legitimate_sql_allowed():
-    """Test that valid SELECT queries work"""
-    valid_queries = [
-        "SELECT * FROM data LIMIT 100",
-        "SELECT COUNT(*) FROM data",
-        "SELECT revenue, COUNT(*) FROM data GROUP BY revenue",
-        "WITH cte AS (SELECT * FROM data) SELECT * FROM cte"
-    ]
-    
-    for query in valid_queries:
-        is_safe, _ = validate_sql_safety(query)
-        assert is_safe, f"Should allow: {query}"
-
-# Run with: pytest backend/tests/test_security.py -v

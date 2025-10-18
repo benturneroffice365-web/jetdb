@@ -3,12 +3,14 @@
   "version": "8.0.0",
   "private": true,
   "dependencies": {
+    "@handsontable/react": "^14.1.0",
     "@supabase/supabase-js": "^2.39.3",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "ajv": "^8.17.1",
     "axios": "^1.6.5",
+    "handsontable": "^14.1.0",
     "jquery": "^3.7.1",
     "jquery-mousewheel": "^3.1.13",
     "luckysheet": "^2.1.13",
@@ -25,5 +27,17 @@
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
+  },
+  "browserslist": {
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version",
+      "last 1 firefox version",
+      "last 1 safari version"
+    ]
   }
 }

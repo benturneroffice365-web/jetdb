@@ -1,5 +1,4 @@
-#2. frontend/src/components/FileUploader.tsx
-tsximport React, { useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import axios from 'axios';
 import toast from 'react-hot-toast';
