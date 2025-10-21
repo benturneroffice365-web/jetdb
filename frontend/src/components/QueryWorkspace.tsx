@@ -49,7 +49,7 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
 
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
-      toast.success(`${data.rows_returned} rows in ${data.execution_time_seconds}s`);
+      toast.success(`✅ ${data.rows_returned} rows in ${data.execution_time_seconds}s`);
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Query failed');
     } finally {
@@ -77,7 +77,7 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
 
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
-      toast.success(`Generated SQL: ${data.sql_query}`);
+      toast.success(`✅ Generated SQL: ${data.sql_query}`);
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'AI query failed');
     } finally {
@@ -97,47 +97,146 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Query Input Area */}
       <div style={{ padding: '16px', background: '#1a1a24', borderBottom: '1px solid #2d2d44' }}>
+        {/* AI Query Row */}
         <div style={{ display: 'flex', gap: '12px', marginBottom: '12px' }}>
           <input
             type="text"
-            placeholder="Ask AI: 'Show top 10 by revenue'"
+            placeholder="🤖 Ask JetAI: 'Show top 10 by revenue'"
             value={aiQuery}
             onChange={(e) => setAiQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && executeAI()}
-            style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d44', background: '#24243a', color: '#fff' }}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && aiQuery && executeAI()}
+            style={{ 
+              flex: 1, 
+              padding: '12px 16px', 
+              borderRadius: '8px', 
+              border: '1px solid #2d2d44', 
+              background: '#24243a', 
+              color: '#fff',
+              fontSize: '14px',
+              outline: 'none',
+              transition: 'border-color 0.2s'
+            }}
             disabled={loading}
+            onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+            onBlur={(e) => e.target.style.borderColor = '#2d2d44'}
           />
-          <button onClick={executeAI} disabled={loading || !aiQuery} style={{ padding: '10px 20px', background: '#6366f1', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-            ðŸ¤– Ask AI
+          <button 
+            onClick={executeAI} 
+            disabled={loading || !aiQuery} 
+            style={{ 
+              padding: '12px 24px',
+              background: (loading || !aiQuery) ? '#3d3d54' : 'linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)',
+              color: '#fff', 
+              border: 'none', 
+              borderRadius: '8px', 
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: (loading || !aiQuery) ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s',
+              minWidth: '120px',
+              justifyContent: 'center'
+            }}
+            onMouseOver={(e) => {
+              if (!loading && aiQuery) {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.4)';
+              }
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <span style={{ fontSize: '16px' }}>🤖</span>
+            {loading ? 'Running...' : 'JetAI'}
           </button>
         </div>
+
+        {/* SQL Query Row */}
         <div style={{ display: 'flex', gap: '12px' }}>
           <input
             type="text"
-            placeholder="SQL: SELECT * FROM data WHERE revenue > 1000"
+            placeholder="💻 Execute SQL: SELECT * FROM data WHERE revenue > 1000"
             value={sqlQuery}
             onChange={(e) => setSqlQuery(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && executeSQL()}
-            style={{ flex: 1, padding: '10px', borderRadius: '6px', border: '1px solid #2d2d44', background: '#24243a', color: '#fff', fontFamily: 'monospace' }}
+            onKeyDown={(e) => e.key === 'Enter' && !loading && sqlQuery && executeSQL()}
+            style={{ 
+              flex: 1, 
+              padding: '12px 16px', 
+              borderRadius: '8px', 
+              border: '1px solid #2d2d44', 
+              background: '#24243a', 
+              color: '#fff', 
+              fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
+              fontSize: '13px',
+              outline: 'none',
+              transition: 'border-color 0.2s'
+            }}
             disabled={loading}
+            onFocus={(e) => e.target.style.borderColor = '#10b981'}
+            onBlur={(e) => e.target.style.borderColor = '#2d2d44'}
           />
-          <button onClick={executeSQL} disabled={loading || !sqlQuery} style={{ padding: '10px 20px', background: '#10b981', color: '#fff', border: 'none', borderRadius: '6px', fontWeight: 600, cursor: 'pointer' }}>
-            ðŸ’» Run SQL
+          <button 
+            onClick={executeSQL} 
+            disabled={loading || !sqlQuery} 
+            style={{ 
+              padding: '12px 24px',
+              background: (loading || !sqlQuery) ? '#3d3d54' : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: '#fff', 
+              border: 'none', 
+              borderRadius: '8px', 
+              fontWeight: 600,
+              fontSize: '14px',
+              cursor: (loading || !sqlQuery) ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              transition: 'all 0.2s',
+              minWidth: '150px',
+              justifyContent: 'center'
+            }}
+            onMouseOver={(e) => {
+              if (!loading && sqlQuery) {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.4)';
+              }
+            }}
+            onMouseOut={(e) => {
+              e.currentTarget.style.transform = 'translateY(0)';
+              e.currentTarget.style.boxShadow = 'none';
+            }}
+          >
+            <span style={{ fontSize: '16px' }}>▶️</span>
+            {loading ? 'Executing...' : 'Execute SQL'}
           </button>
         </div>
       </div>
 
+      {/* Tab Bar */}
       {tabs.length > 0 && (
         <>
-          <div style={{ display: 'flex', gap: '4px', padding: '8px 16px', background: '#24243a', borderBottom: '1px solid #2d2d44', overflowX: 'auto' }}>
+          <div style={{ 
+            display: 'flex', 
+            gap: '4px', 
+            padding: '8px 16px', 
+            background: '#24243a', 
+            borderBottom: '1px solid #2d2d44', 
+            overflowX: 'auto',
+            scrollbarWidth: 'thin',
+            scrollbarColor: '#3d3d54 #24243a'
+          }}>
             {tabs.map(tab => (
               <div
                 key={tab.id}
                 onClick={() => setActiveTabId(tab.id)}
                 style={{
-                  padding: '8px 16px',
-                  borderRadius: '6px',
+                  padding: '10px 16px',
+                  borderRadius: '6px 6px 0 0',
                   background: activeTabId === tab.id ? '#6366f1' : '#1a1a24',
                   color: '#fff',
                   cursor: 'pointer',
@@ -145,23 +244,54 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
                   alignItems: 'center',
                   gap: '8px',
                   fontSize: '13px',
-                  whiteSpace: 'nowrap'
+                  whiteSpace: 'nowrap',
+                  transition: 'all 0.2s',
+                  border: activeTabId === tab.id ? '1px solid #6366f1' : '1px solid #2d2d44',
+                  borderBottom: 'none'
+                }}
+                onMouseOver={(e) => {
+                  if (activeTabId !== tab.id) {
+                    e.currentTarget.style.background = '#2d2d44';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (activeTabId !== tab.id) {
+                    e.currentTarget.style.background = '#1a1a24';
+                  }
                 }}
               >
-                <span>{tab.type === 'sql' ? 'ðŸ’»' : 'ðŸ¤–'}</span>
-                <span>{tab.title}</span>
+                <span>{tab.type === 'sql' ? '💻' : '🤖'}</span>
+                <span style={{ fontWeight: activeTabId === tab.id ? 600 : 400 }}>
+                  {tab.title}
+                </span>
                 <button
-                  onClick={(e) => { e.stopPropagation(); closeTab(tab.id); }}
-                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '16px' }}
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    closeTab(tab.id); 
+                  }}
+                  style={{ 
+                    background: 'none', 
+                    border: 'none', 
+                    color: '#fff', 
+                    cursor: 'pointer', 
+                    fontSize: '18px',
+                    padding: '0 4px',
+                    marginLeft: '4px',
+                    opacity: 0.7,
+                    transition: 'opacity 0.2s'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
+                  onMouseOut={(e) => e.currentTarget.style.opacity = '0.7'}
                 >
-                  Ã—
+                  ×
                 </button>
               </div>
             ))}
           </div>
 
+          {/* Tab Content */}
           {activeTab && (
-            <div style={{ flex: 1, overflow: 'hidden' }}>
+            <div style={{ flex: 1, overflow: 'hidden', background: '#1a1a24' }}>
               <HotTable
                 data={activeTab.results}
                 colHeaders={activeTab.columns}
@@ -171,10 +301,36 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
                 licenseKey={process.env.REACT_APP_HANDSONTABLE_LICENSE_KEY || 'non-commercial-and-evaluation'}
                 columnSorting={true}
                 filters={true}
+                dropdownMenu={true}
+                contextMenu={true}
+                manualColumnResize={true}
+                className="jetdb-spreadsheet"
+                stretchH="all"
               />
             </div>
           )}
         </>
+      )}
+
+      {/* Empty State */}
+      {tabs.length === 0 && (
+        <div style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '16px',
+          color: '#a1a1aa'
+        }}>
+          <div style={{ fontSize: '64px' }}>🔍</div>
+          <h3 style={{ color: '#e4e4e7', margin: 0 }}>
+            Start querying your data
+          </h3>
+          <p style={{ fontSize: '14px', textAlign: 'center', maxWidth: '400px' }}>
+            Use <strong style={{ color: '#6366f1' }}>JetAI</strong> for natural language queries or <strong style={{ color: '#10b981' }}>Execute SQL</strong> for custom queries
+          </p>
+        </div>
       )}
     </div>
   );

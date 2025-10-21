@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { createClient } from '@supabase/supabase-js';
 import axios from 'axios';
@@ -22,6 +22,7 @@ interface Dataset {
   column_count: number;
   columns: string[];
   status: string;
+  error_message?: string;
   storage_format?: string;
   created_at: string;
 }
@@ -32,12 +33,16 @@ const App: React.FC = () => {
   const [password, setPassword] = useState('');
   const [isSignup, setIsSignup] = useState(false);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [datasetCount, setDatasetCount] = useState<number>(0);
   const [selectedDataset, setSelectedDataset] = useState<string | null>(null);
   const [selectedForMerge, setSelectedForMerge] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [view, setView] = useState<'grid' | 'query'>('grid');
   const [showDatasetList, setShowDatasetList] = useState(false);
+  
+  // Track if we've done initial load
+  const hasInitiallyLoaded = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => setSession(session));
@@ -48,36 +53,56 @@ const App: React.FC = () => {
     'Authorization': `Bearer ${session?.access_token}`
   }), [session]);
 
-  const fetchDatasets = async () => {
-    if (!session) return;
+  const fetchDatasets = useCallback(async () => {
+    if (!session) {
+      setDatasets([]);
+      setDatasetCount(0);
+      return;
+    }
+
     try {
       const { data } = await axios.get(`${API_BASE}/datasets`, {
         headers: getAuthHeaders()
       });
-      setDatasets(data.datasets || []);
+      
+      const fetchedDatasets = data.datasets || [];
+      setDatasets(fetchedDatasets);
+      setDatasetCount(fetchedDatasets.length);
+      
+      console.log(`✅ Fetched ${fetchedDatasets.length} datasets`);
     } catch (error) {
       console.error('Failed to fetch datasets:', error);
+      // Don't reset count on error if we already have data
+      if (datasets.length === 0) {
+        setDatasetCount(0);
+      }
     }
-  };
+  }, [session, getAuthHeaders, datasets.length]);
+
+  useEffect(() => {
+    if (session && !hasInitiallyLoaded.current) {
+      fetchDatasets();
+      hasInitiallyLoaded.current = true;
+    }
+  }, [session, fetchDatasets]);
 
   useEffect(() => {
     if (session) {
-      fetchDatasets();
       // Poll for status updates every 3 seconds
       const interval = setInterval(fetchDatasets, 3000);
       return () => clearInterval(interval);
     }
-  }, [session]);
+  }, [session, fetchDatasets]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       if (isSignup) {
         await supabase.auth.signUp({ email, password });
-        toast.success('Check your email!');
+        toast.success('✅ Check your email!');
       } else {
         await supabase.auth.signInWithPassword({ email, password });
-        toast.success('Welcome back!');
+        toast.success('✅ Welcome back!');
       }
     } catch (error: any) {
       toast.error(error.message);
@@ -96,8 +121,14 @@ const App: React.FC = () => {
       const { data } = await axios.post(`${API_BASE}/upload`, formData, {
         headers: { ...getAuthHeaders(), 'Content-Type': 'multipart/form-data' }
       });
-      toast.success(`Uploaded ${file.name}! Processing...`);
-      fetchDatasets();
+      
+      toast.success(`✅ Uploaded ${file.name}! Processing...`);
+      
+      // Immediately increment count optimistically
+      setDatasetCount(prev => prev + 1);
+      
+      // Fetch fresh data
+      await fetchDatasets();
       
       // Auto-select the uploaded dataset after a short delay
       setTimeout(() => {
@@ -105,10 +136,12 @@ const App: React.FC = () => {
       }, 1000);
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Upload failed');
+      // Revert optimistic update on error
+      await fetchDatasets();
     } finally {
       setUploading(false);
     }
-  }, [session, getAuthHeaders]);
+  }, [session, getAuthHeaders, fetchDatasets]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -126,7 +159,7 @@ const App: React.FC = () => {
   const handleMergeClick = () => {
     const readyDatasets = datasets.filter(d => d.status === 'ready');
     if (readyDatasets.length < 2) {
-      toast.error('Need at least 2 ready datasets to merge');
+      toast.error('❌ Need at least 2 ready datasets to merge');
       return;
     }
     setSelectedForMerge(readyDatasets.map(d => d.id));
@@ -134,6 +167,7 @@ const App: React.FC = () => {
   };
 
   const currentDataset = datasets.find(d => d.id === selectedDataset);
+  const readyDatasetCount = datasets.filter(d => d.status === 'ready').length;
 
   // Auth Screen
   if (!session) {
@@ -212,12 +246,13 @@ const App: React.FC = () => {
         </div>
         
         <div className="header-right">
-          {/* Dataset List Button */}
+          {/* Dataset List Button - FIXED COUNT */}
           <button 
             onClick={() => setShowDatasetList(!showDatasetList)} 
             className="btn-secondary"
+            title={`You have ${datasetCount} total dataset${datasetCount !== 1 ? 's' : ''}`}
           >
-            📊 Datasets ({datasets.length})
+            📊 Datasets ({datasetCount})
           </button>
 
           {/* View Toggle (only show when dataset selected) */}
@@ -227,15 +262,16 @@ const App: React.FC = () => {
                 onClick={() => setView(view === 'grid' ? 'query' : 'grid')} 
                 className="btn-secondary"
               >
-                {view === 'grid' ? '🤖 Query' : '📊 Grid'}
+                {view === 'grid' ? '🔍 Query' : '📊 Grid'}
               </button>
               
               <button 
                 onClick={handleMergeClick} 
                 className="btn-primary" 
-                disabled={datasets.filter(d => d.status === 'ready').length < 2}
+                disabled={readyDatasetCount < 2}
+                title={readyDatasetCount < 2 ? 'Need at least 2 ready datasets to merge' : `Merge ${readyDatasetCount} ready datasets`}
               >
-                🔄 Merge ({datasets.filter(d => d.status === 'ready').length})
+                🔄 Merge ({readyDatasetCount})
               </button>
             </>
           )}
@@ -252,16 +288,17 @@ const App: React.FC = () => {
           position: 'absolute',
           top: '70px',
           right: '24px',
-          background: 'rgba(26, 26, 36, 0.95)',
+          background: 'rgba(26, 26, 36, 0.98)',
           backdropFilter: 'blur(10px)',
           border: '1px solid #2d2d44',
           borderRadius: '12px',
           padding: '12px',
-          minWidth: '300px',
-          maxHeight: '400px',
+          minWidth: '320px',
+          maxWidth: '400px',
+          maxHeight: '500px',
           overflowY: 'auto',
           zIndex: 1000,
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)'
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.6)'
         }}>
           <div style={{ 
             display: 'flex', 
@@ -271,8 +308,8 @@ const App: React.FC = () => {
             paddingBottom: '12px',
             borderBottom: '1px solid #2d2d44'
           }}>
-            <h3 style={{ margin: 0, fontSize: '14px', color: '#e4e4e7', fontWeight: 600 }}>
-              Your Datasets
+            <h3 style={{ margin: 0, fontSize: '15px', color: '#e4e4e7', fontWeight: 600 }}>
+              Your Datasets ({datasetCount})
             </h3>
             <button 
               onClick={() => setShowDatasetList(false)}
@@ -281,16 +318,32 @@ const App: React.FC = () => {
                 border: 'none', 
                 color: '#a1a1aa', 
                 cursor: 'pointer',
-                fontSize: '20px'
+                fontSize: '24px',
+                padding: '0',
+                width: '24px',
+                height: '24px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
               }}
+              title="Close"
             >
               ×
             </button>
           </div>
           
-          {datasets.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#a1a1aa', fontSize: '13px' }}>
-              No datasets yet. Upload a CSV to get started!
+          {datasetCount === 0 ? (
+            <div style={{ 
+              padding: '32px 20px', 
+              textAlign: 'center', 
+              color: '#a1a1aa', 
+              fontSize: '13px' 
+            }}>
+              <div style={{ fontSize: '48px', marginBottom: '12px', opacity: 0.5 }}>📊</div>
+              <p style={{ margin: 0 }}>No datasets yet</p>
+              <p style={{ margin: '4px 0 0 0', fontSize: '12px' }}>
+                Upload a CSV to get started!
+              </p>
             </div>
           ) : (
             datasets.map(ds => (
@@ -307,34 +360,60 @@ const App: React.FC = () => {
                   opacity: ds.status === 'ready' ? 1 : 0.6,
                   transition: 'all 0.2s'
                 }}
+                onMouseOver={(e) => {
+                  if (ds.status === 'ready') {
+                    e.currentTarget.style.background = selectedDataset === ds.id 
+                      ? 'rgba(99, 102, 241, 0.3)' 
+                      : 'rgba(61, 61, 84, 0.5)';
+                  }
+                }}
+                onMouseOut={(e) => {
+                  if (ds.status === 'ready') {
+                    e.currentTarget.style.background = selectedDataset === ds.id 
+                      ? 'rgba(99, 102, 241, 0.2)' 
+                      : 'rgba(45, 45, 68, 0.5)';
+                  }
+                }}
               >
                 <div style={{ 
                   display: 'flex', 
                   justifyContent: 'space-between', 
                   alignItems: 'start',
-                  marginBottom: '4px'
+                  marginBottom: '6px'
                 }}>
                   <span style={{ 
                     fontSize: '13px', 
                     fontWeight: 600, 
                     color: '#e4e4e7',
-                    wordBreak: 'break-word'
+                    wordBreak: 'break-word',
+                    flex: 1,
+                    marginRight: '8px'
                   }}>
                     {ds.filename}
                   </span>
                   {ds.status === 'processing' && (
-                    <span style={{ fontSize: '10px', color: '#fbbf24' }}>⏳</span>
+                    <span style={{ fontSize: '11px', color: '#fbbf24', whiteSpace: 'nowrap' }} title="Processing">⏳</span>
                   )}
                   {ds.status === 'ready' && (
-                    <span style={{ fontSize: '10px', color: '#10b981' }}>✓</span>
+                    <span style={{ fontSize: '11px', color: '#10b981', whiteSpace: 'nowrap' }} title="Ready">✓</span>
                   )}
                   {ds.status === 'error' && (
-                    <span style={{ fontSize: '10px', color: '#ef4444' }}>✗</span>
+                    <span style={{ fontSize: '11px', color: '#ef4444', whiteSpace: 'nowrap' }} title={ds.error_message || 'Error'}>✗</span>
                   )}
                 </div>
                 <div style={{ fontSize: '11px', color: '#a1a1aa' }}>
-                  {ds.row_count ? `${ds.row_count.toLocaleString()} rows` : 'Processing...'}
-                  {ds.column_count && ` • ${ds.column_count} columns`}
+                  {ds.status === 'ready' ? (
+                    <>
+                      {ds.row_count ? `${ds.row_count.toLocaleString()} rows` : '0 rows'}
+                      {ds.column_count && ` • ${ds.column_count} columns`}
+                    </>
+                  ) : ds.status === 'processing' ? (
+                    'Analyzing...'
+                  ) : ds.status === 'error' ? (
+                    <span style={{ color: '#ef4444' }}>Processing failed</span>
+                  ) : (
+                    'Unknown status'
+                  )}
                 </div>
               </div>
             ))
@@ -358,6 +437,11 @@ const App: React.FC = () => {
                 <div className="dropzone-icon">📊</div>
                 <h2>Drop CSV here or click to browse</h2>
                 <p>Up to 10GB • Automatic analysis and conversion</p>
+                {datasetCount > 0 && (
+                  <p style={{ marginTop: '16px', color: '#10b981', fontSize: '14px', fontWeight: 600 }}>
+                    You have {datasetCount} dataset{datasetCount !== 1 ? 's' : ''} • Click "Datasets" to view
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -385,12 +469,22 @@ const App: React.FC = () => {
             alignItems: 'center', 
             justifyContent: 'center', 
             height: '100%',
-            gap: '16px'
+            gap: '16px',
+            padding: '40px'
           }}>
-            <div style={{ fontSize: '48px' }}>⚠️</div>
-            <h3 style={{ color: '#ef4444' }}>Processing Failed</h3>
-            <p style={{ color: '#a1a1aa', fontSize: '14px', maxWidth: '400px', textAlign: 'center' }}>
-              {currentDataset.error_message || 'Unknown error'}
+            <div style={{ fontSize: '64px' }}>⚠️</div>
+            <h3 style={{ color: '#ef4444', textAlign: 'center' }}>Processing Failed</h3>
+            <p style={{ 
+              color: '#a1a1aa', 
+              fontSize: '14px', 
+              maxWidth: '500px', 
+              textAlign: 'center',
+              background: 'rgba(239, 68, 68, 0.1)',
+              padding: '16px',
+              borderRadius: '8px',
+              border: '1px solid rgba(239, 68, 68, 0.3)'
+            }}>
+              {currentDataset.error_message || 'Unknown error occurred during processing'}
             </p>
             <button 
               onClick={() => setSelectedDataset(null)}
