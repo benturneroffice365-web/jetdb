@@ -1,6 +1,6 @@
-/* ============================================================================
-   App.css - JetDB v8.0 Complete Styling
-   ============================================================================ */
+/* JetDB v8.0 - App.css */
+
+/* ==================== GLOBAL STYLES ==================== */
 
 * {
   margin: 0;
@@ -10,11 +10,10 @@
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #0a0a0f;
+  background: #0f0f1a;
   color: #e4e4e7;
 }
 
@@ -22,34 +21,123 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 100%);
+  overflow: hidden;
 }
 
-/* ============================================================================
-   HEADER
-   ============================================================================ */
+/* ==================== SPINNER ==================== */
 
-.header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px 24px;
-  background: rgba(26, 26, 36, 0.8);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid #2d2d44;
-  z-index: 100;
+.spinner {
+  width: 40px;
+  height: 40px;
+  border: 4px solid rgba(99, 102, 241, 0.1);
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.header-left {
+.spinner.small {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+
+.spinner.large {
+  width: 60px;
+  height: 60px;
+  border-width: 6px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ==================== AUTH SCREEN ==================== */
+
+.auth-container {
   display: flex;
   align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
+}
+
+.auth-card {
+  background: #1a1a24;
+  border: 1px solid #2d2d44;
+  border-radius: 16px;
+  padding: 48px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 32px;
+}
+
+.auth-header h1 {
+  font-size: 48px;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.auth-header p {
+  color: #a1a1aa;
+  font-size: 14px;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
   gap: 16px;
 }
 
+.auth-form input {
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid #2d2d44;
+  background: #24243a;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-form input:focus {
+  border-color: #6366f1;
+}
+
+.auth-footer {
+  margin-top: 32px;
+  text-align: center;
+}
+
+.text-sm {
+  font-size: 14px;
+  color: #a1a1aa;
+  line-height: 1.6;
+}
+
+/* ==================== HEADER ==================== */
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  background: #1a1a24;
+  border-bottom: 1px solid #2d2d44;
+}
+
+.header-left,
+.header-center,
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .logo {
@@ -58,62 +146,57 @@ body {
   background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  background-clip: text;
   margin: 0;
 }
 
 .version {
-  padding: 4px 12px;
-  background: rgba(99, 102, 241, 0.2);
-  border: 1px solid #6366f1;
-  border-radius: 6px;
   font-size: 12px;
-  color: #a5b4fc;
-  font-weight: 600;
-}
-
-.current-file {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 16px;
-  background: rgba(45, 45, 68, 0.5);
-  border-radius: 8px;
-  font-size: 14px;
-}
-
-.row-count {
-  padding: 2px 8px;
-  background: rgba(16, 185, 129, 0.2);
-  border: 1px solid #10b981;
+  color: #a1a1aa;
+  padding: 4px 8px;
+  background: #24243a;
   border-radius: 4px;
-  font-size: 12px;
-  color: #6ee7b7;
-  font-weight: 600;
 }
 
-/* ============================================================================
-   BUTTONS
-   ============================================================================ */
+.dataset-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
 
-.btn-primary, .btn-secondary {
+.dataset-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: #e4e4e7;
+}
+
+.dataset-stats {
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+/* ==================== BUTTONS ==================== */
+
+.btn-primary {
   padding: 10px 20px;
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
   border: none;
   border-radius: 8px;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-primary {
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  color: white;
+  transition: transform 0.15s, opacity 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .btn-primary:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+  transform: scale(1.02);
+}
+
+.btn-primary:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .btn-primary:disabled {
@@ -122,562 +205,603 @@ body {
 }
 
 .btn-secondary {
-  background: rgba(61, 61, 84, 0.8);
+  padding: 10px 20px;
+  background: #24243a;
   color: #e4e4e7;
-  border: 1px solid #3d3d54;
+  border: 1px solid #2d2d44;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
-.btn-secondary:hover {
-  background: rgba(77, 77, 100, 0.8);
-  border-color: #4d4d64;
+.btn-secondary:hover:not(:disabled) {
+  background: #2d2d44;
+  transform: scale(1.02);
 }
 
-/* ============================================================================
-   AUTH SCREEN
-   ============================================================================ */
+.btn-secondary:active:not(:disabled) {
+  transform: scale(0.98);
+}
 
-.auth-container {
+.btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #6366f1;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 8px 0;
+  transition: color 0.2s;
+}
+
+.btn-link:hover {
+  color: #8b5cf6;
+  text-decoration: underline;
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: #a1a1aa;
+  font-size: 28px;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #0a0a0f 0%, #1a1a24 100%);
-}
-
-.auth-box {
-  width: 100%;
-  max-width: 400px;
-  padding: 40px;
-  background: rgba(26, 26, 36, 0.8);
-  backdrop-filter: blur(10px);
-  border: 1px solid #2d2d44;
-  border-radius: 16px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
-}
-
-.auth-input {
-  width: 100%;
-  padding: 12px 16px;
-  background: rgba(36, 36, 58, 0.8);
-  border: 1px solid #2d2d44;
-  border-radius: 8px;
-  color: #e4e4e7;
-  font-size: 14px;
+  border-radius: 4px;
   transition: all 0.2s;
 }
 
-.auth-input:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+.btn-close:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }
 
-.auth-button {
-  width: 100%;
-  padding: 12px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+.btn-close:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.btn-icon {
+  background: none;
   border: none;
-  border-radius: 8px;
-  color: white;
+  color: #a1a1aa;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  transition: color 0.2s;
+}
+
+.btn-icon:hover {
+  color: #e4e4e7;
+}
+
+.btn-tab {
+  padding: 12px 24px;
+  background: transparent;
+  color: #a1a1aa;
+  border: none;
+  border-bottom: 2px solid transparent;
   font-weight: 600;
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
 }
 
-.auth-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.4);
+.btn-tab:hover {
+  color: #e4e4e7;
+  background: rgba(99, 102, 241, 0.05);
 }
 
-/* ============================================================================
-   MAIN CONTENT
-   ============================================================================ */
+.btn-tab.active {
+  color: #6366f1;
+  border-bottom-color: #6366f1;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* ==================== CONTENT AREA ==================== */
+
+.app-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
 
 .main-content {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  padding: 24px;
+  background: #0f0f1a;
 }
 
-/* ============================================================================
-   DROPZONE
-   ============================================================================ */
+/* ==================== SIDEBAR ==================== */
 
-.dropzone {
+.sidebar {
+  width: 320px;
+  background: #1a1a24;
+  border-right: 1px solid #2d2d44;
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid #2d2d44;
+}
+
+.sidebar-header h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #e4e4e7;
+  margin: 0;
+}
+
+.sidebar-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.sidebar-footer {
+  padding: 16px;
+  border-top: 1px solid #2d2d44;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #a1a1aa;
+}
+
+.empty-state p {
+  margin-bottom: 8px;
+}
+
+/* ==================== DATASET LIST ==================== */
+
+.dataset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dataset-item {
+  padding: 12px;
+  background: #24243a;
+  border: 1px solid #2d2d44;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.dataset-item:hover {
+  background: #2d2d44;
+  border-color: #3d3d54;
+}
+
+.dataset-item.active {
+  background: #2d2d44;
+  border-color: #6366f1;
+}
+
+.dataset-item-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dataset-filename {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  color: #e4e4e7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-ready {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.status-processing {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+}
+
+.status-error {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.dataset-item-stats {
+  font-size: 12px;
+  color: #a1a1aa;
+  padding-left: 32px;
+}
+
+/* ==================== UPLOAD ZONE ==================== */
+
+.upload-zone-container {
+  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  border: 3px dashed #3d3d54;
-  border-radius: 16px;
-  background: rgba(26, 26, 36, 0.5);
-  cursor: pointer;
-  transition: all 0.3s;
+  padding: 40px;
 }
 
-.dropzone:hover {
+.upload-zone {
+  width: 100%;
+  max-width: 600px;
+  padding: 80px 40px;
+  border: 3px dashed #2d2d44;
+  border-radius: 16px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.3s;
+  background: #1a1a24;
+}
+
+.upload-zone:hover:not(.uploading) {
   border-color: #6366f1;
-  background: rgba(36, 36, 58, 0.5);
+  background: rgba(99, 102, 241, 0.05);
+}
+
+.upload-zone.drag-active {
+  border-color: #6366f1;
+  background: rgba(99, 102, 241, 0.1);
   transform: scale(1.02);
 }
 
-.dropzone-active {
-  border-color: #10b981;
-  background: rgba(16, 185, 129, 0.1);
-  transform: scale(1.05);
+.upload-zone.uploading {
+  cursor: not-allowed;
+  border-style: solid;
 }
 
-.dropzone-icon {
+.upload-icon {
   font-size: 64px;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 
-.dropzone h2 {
+.upload-zone h2 {
   font-size: 24px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  margin-bottom: 12px;
+  color: #e4e4e7;
 }
 
-.dropzone p {
+.upload-zone p {
+  color: #a1a1aa;
+  margin-bottom: 8px;
+}
+
+.upload-hint {
+  font-size: 13px !important;
+  color: #71717a !important;
+}
+
+.quick-actions {
+  margin-top: 40px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.quick-actions h3 {
+  font-size: 16px;
+  margin-bottom: 16px;
+  color: #a1a1aa;
+}
+
+/* ==================== VIEW SELECTOR ==================== */
+
+.view-selector {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  background: #1a1a24;
+  border-bottom: 1px solid #2d2d44;
+}
+
+/* ==================== LOADING STATE ==================== */
+
+.loading-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  background: #1a1a24;
+}
+
+.loading-state h3 {
+  margin: 0;
+  color: #e4e4e7;
+}
+
+.loading-state p {
   color: #a1a1aa;
   font-size: 14px;
 }
 
-/* ============================================================================
-   UPLOAD PROGRESS
-   ============================================================================ */
+/* ==================== MODAL ==================== */
 
-.upload-progress {
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-content {
+  background: #1a1a24;
+  border: 1px solid #2d2d44;
+  border-radius: 16px;
+  width: 100%;
+  max-width: 600px;
+  max-height: 90vh;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-header {
+  display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: space-between;
+  padding: 24px;
+  border-bottom: 1px solid #2d2d44;
 }
 
-.spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #2d2d44;
-  border-top-color: #6366f1;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
+.modal-header h2 {
+  font-size: 20px;
+  margin: 0;
+  color: #e4e4e7;
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
 }
 
-/* ============================================================================
-   HANDSONTABLE SPREADSHEET STYLING
-   ============================================================================ */
-
-/* Main container */
-.main-content > div {
-  height: 100%;
-  background: rgba(26, 26, 36, 0.8);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+.modal-footer {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  padding: 20px 24px;
+  border-top: 1px solid #2d2d44;
 }
 
-/* Base spreadsheet */
-.jetdb-spreadsheet.handsontable {
-  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+/* ==================== FORM ELEMENTS ==================== */
+
+.form-group {
+  margin-bottom: 24px;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 8px;
+  color: #a1a1aa;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 8px;
+  border: 1px solid #2d2d44;
+  background: #24243a;
+  color: #fff;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.form-input:focus {
+  border-color: #6366f1;
+}
+
+.form-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ==================== MERGE MODAL SPECIFIC ==================== */
+
+.dataset-list-merge {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dataset-card {
+  padding: 16px;
+  background: #24243a;
+  border: 1px solid #2d2d44;
+  border-radius: 8px;
+}
+
+.dataset-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.dataset-icon {
+  font-size: 20px;
+}
+
+.dataset-card-stats {
   font-size: 13px;
-  color: #e4e4e7 !important;
-  background: #1a1a24 !important;
+  color: #a1a1aa;
 }
 
-/* Column headers */
-.handsontable thead th {
-  background: #2d2d44 !important;
-  color: #e4e4e7 !important;
-  border-color: #3d3d54 !important;
+.merge-summary {
+  padding: 16px;
+  background: #24243a;
+  border: 1px solid #2d2d44;
+  border-radius: 8px;
+  margin-top: 16px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid #2d2d44;
+}
+
+.summary-row:last-child {
+  border-bottom: none;
+}
+
+.summary-row.success {
+  color: #22c55e;
+}
+
+.summary-label {
+  color: #a1a1aa;
+  font-size: 14px;
+}
+
+.summary-value {
+  color: #e4e4e7;
   font-weight: 600;
+  font-size: 14px;
+}
+
+/* ==================== PROGRESS BAR ==================== */
+
+.progress-container {
+  margin-top: 24px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: #24243a;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 100%);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+.progress-text {
   text-align: center;
+  font-size: 14px;
+  color: #a1a1aa;
 }
 
-/* Row headers (row numbers on left) */
-.handsontable .ht_clone_left thead th,
-.handsontable .ht_clone_top_left_corner thead th,
-.handsontable tbody th {
-  background: #2d2d44 !important;
-  color: #a1a1aa !important;
-  border-color: #3d3d54 !important;
-  font-weight: 600;
-  text-align: center;
+/* ==================== HANDSONTABLE OVERRIDES ==================== */
+
+.jetdb-spreadsheet {
+  background: #1a1a24;
 }
 
-/* Regular cells */
-.handsontable td {
-  background: #1a1a24 !important;
-  color: #e4e4e7 !important;
-  border-color: #2d2d44 !important;
+.jetdb-spreadsheet .handsontable {
+  color: #e4e4e7;
 }
 
-/* Empty cells */
-.handsontable td.htEmpty {
-  background: #1a1a24 !important;
-  color: #5a5a6a !important;
+.jetdb-spreadsheet .handsontable th {
+  background: #24243a;
+  color: #a1a1aa;
+  border-color: #2d2d44;
 }
 
-/* Null/placeholder cells */
-.handsontable td.htPlaceholder {
-  color: #5a5a6a !important;
+.jetdb-spreadsheet .handsontable td {
+  background: #1a1a24;
+  border-color: #2d2d44;
+  color: #e4e4e7;
 }
 
-/* Selected cells */
-.handsontable td.area {
-  background: rgba(99, 102, 241, 0.2) !important;
+.jetdb-spreadsheet .handsontable td.area {
+  background: rgba(99, 102, 241, 0.1);
 }
 
-/* Currently active cell */
-.handsontable td.current {
-  background: rgba(99, 102, 241, 0.3) !important;
-  border: 2px solid #6366f1 !important;
-}
+/* ==================== SCROLLBAR ==================== */
 
-/* Highlighted selection */
-.handsontable td.highlight {
-  background: rgba(99, 102, 241, 0.15) !important;
-}
-
-/* Row hover effect */
-.handsontable tbody tr:hover td {
-  background: #24243a !important;
-}
-
-/* Active cell being edited */
-.handsontable td.htDimmed {
-  background: #24243a !important;
-}
-
-/* Autocomplete arrow */
-.handsontable .htAutocompleteArrow,
-.handsontable .htExpandButton {
-  color: #a1a1aa !important;
-}
-
-/* Fill handle (bottom-right corner for dragging) */
-.handsontable .wtBorder.corner {
-  background: #6366f1 !important;
-  border: 2px solid #6366f1 !important;
-  width: 8px !important;
-  height: 8px !important;
-}
-
-/* Selection border */
-.handsontable .wtBorder {
-  background: #6366f1 !important;
-}
-
-.handsontable .wtBorder.current {
-  border: 2px solid #6366f1 !important;
-}
-
-.handsontable .wtBorder.area {
-  border: 1px solid #6366f1 !important;
-}
-
-/* ============================================================================
-   CONTEXT MENU
-   ============================================================================ */
-
-.htContextMenu {
-  background: #24243a !important;
-  border: 1px solid #3d3d54 !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6) !important;
-}
-
-.htContextMenu table.htCore {
-  background: #24243a !important;
-}
-
-.htContextMenu .ht_master tbody td {
-  background: #24243a !important;
-  color: #e4e4e7 !important;
-  border-color: #2d2d44 !important;
-  padding: 8px 12px !important;
-}
-
-.htContextMenu .ht_master tbody td:hover {
-  background: #3d3d54 !important;
-}
-
-.htContextMenu .ht_master tbody td.htDisabled {
-  color: #5a5a6a !important;
-}
-
-.htContextMenu .ht_master tbody td.htSeparator {
-  border-top: 1px solid #3d3d54 !important;
-}
-
-/* ============================================================================
-   DROPDOWN MENU
-   ============================================================================ */
-
-.htDropdownMenu {
-  background: #24243a !important;
-  border: 1px solid #3d3d54 !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
-}
-
-.htDropdownMenu table.htCore {
-  background: #24243a !important;
-}
-
-.htDropdownMenu .ht_master tbody td {
-  background: #24243a !important;
-  color: #e4e4e7 !important;
-  padding: 6px 12px !important;
-}
-
-.htDropdownMenu .ht_master tbody td:hover {
-  background: #3d3d54 !important;
-}
-
-/* ============================================================================
-   FILTERS
-   ============================================================================ */
-
-.htUIInput,
-.htUISelect,
-.htUIButton {
-  background: #24243a !important;
-  color: #e4e4e7 !important;
-  border: 1px solid #3d3d54 !important;
-}
-
-.htUIInput:focus,
-.htUISelect:focus {
-  outline: none !important;
-  border-color: #6366f1 !important;
-}
-
-.htUIButton:hover {
-  background: #3d3d54 !important;
-}
-
-/* ============================================================================
-   SCROLLBARS
-   ============================================================================ */
-
-.handsontable .wtHolder::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 12px;
   height: 12px;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: #1a1a24;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background: #3d3d54;
   border-radius: 6px;
+  border: 2px solid #1a1a24;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background: #4d4d64;
 }
 
-.handsontable .wtHolder::-webkit-scrollbar-corner {
-  background: #1a1a24;
-}
-
-/* ============================================================================
-   FORMULA BAR
-   ============================================================================ */
-
-.formula-bar {
-  display: flex;
-  align-items: center;
-  padding: 8px 16px;
-  background: #24243a;
-  border-bottom: 1px solid #2d2d44;
-  gap: 12px;
-}
-
-.formula-bar input {
-  flex: 1;
-  padding: 8px 12px;
-  background: #1a1a24;
-  border: 1px solid #2d2d44;
-  border-radius: 6px;
-  color: #e4e4e7;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 13px;
-  transition: all 0.2s;
-}
-
-.formula-bar input:focus {
-  outline: none;
-  border-color: #6366f1;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
-}
-
-.cell-reference {
-  padding: 6px 12px;
-  background: #3d3d54;
-  border: 1px solid #4d4d64;
-  border-radius: 4px;
-  color: #e4e4e7;
-  font-weight: 600;
-  font-size: 12px;
-  min-width: 60px;
-  text-align: center;
-}
-
-/* ============================================================================
-   CELL EDITOR
-   ============================================================================ */
-
-.handsontableInput {
-  background: #24243a !important;
-  color: #e4e4e7 !important;
-  border: 2px solid #6366f1 !important;
-  padding: 4px 8px !important;
-  font-size: 13px !important;
-}
-
-.handsontableInputHolder {
-  background: #24243a !important;
-}
-
-/* ============================================================================
-   COPY/PASTE OVERLAY
-   ============================================================================ */
-
-.htCopyPaste {
-  background: rgba(99, 102, 241, 0.2) !important;
-}
-
-/* ============================================================================
-   COMMENTS
-   ============================================================================ */
-
-.htComments {
-  background: #24243a !important;
-  border: 1px solid #3d3d54 !important;
-  color: #e4e4e7 !important;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
-}
-
-.htCommentTextArea {
-  background: #1a1a24 !important;
-  color: #e4e4e7 !important;
-  border: 1px solid #2d2d44 !important;
-}
-
-/* ============================================================================
-   VALIDATION ERRORS
-   ============================================================================ */
-
-.htInvalid {
-  background: rgba(239, 68, 68, 0.2) !important;
-}
-
-/* ============================================================================
-   READ-ONLY CELLS
-   ============================================================================ */
-
-.handsontable td.htReadOnly {
-  background: rgba(45, 45, 68, 0.5) !important;
-  color: #a1a1aa !important;
-}
-
-/* ============================================================================
-   LOADING OVERLAY
-   ============================================================================ */
-
-.handsontable .wtSpreader::after {
-  background: rgba(26, 26, 36, 0.9) !important;
-  color: #e4e4e7 !important;
-}
-
-/* ============================================================================
-   RESPONSIVE ADJUSTMENTS
-   ============================================================================ */
+/* ==================== RESPONSIVE ==================== */
 
 @media (max-width: 768px) {
-  .header {
-    padding: 12px 16px;
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    transition: transform 0.3s;
   }
-
-  .header-left {
-    gap: 8px;
+  
+  .sidebar.open {
+    transform: translateX(0);
   }
-
-  .header-right {
-    gap: 8px;
-  }
-
-  .logo {
-    font-size: 20px;
-  }
-
-  .main-content {
-    padding: 16px;
-  }
-
-  .btn-primary, .btn-secondary {
-    padding: 8px 16px;
-    font-size: 13px;
-  }
-}
-
-/* ============================================================================
-   UTILITY CLASSES
-   ============================================================================ */
-
-.text-center {
-  text-align: center;
-}
-
-.mt-1 { margin-top: 0.5rem; }
-.mt-2 { margin-top: 1rem; }
-.mt-3 { margin-top: 1.5rem; }
-.mt-4 { margin-top: 2rem; }
-
-.mb-1 { margin-bottom: 0.5rem; }
-.mb-2 { margin-bottom: 1rem; }
-.mb-3 { margin-bottom: 1.5rem; }
-.mb-4 { margin-bottom: 2rem; }
-
-.p-1 { padding: 0.5rem; }
-.p-2 { padding: 1rem; }
-.p-3 { padding: 1.5rem; }
-.p-4 { padding: 2rem; }
-
-/* ============================================================================
-   PRINT STYLES
-   ============================================================================ */
-
-@media print {
-  .header,
-  .btn-primary,
-  .btn-secondary,
-  .formula-bar {
-    display: none !important;
-  }
-
-  .main-content {
-    padding: 0 !important;
-  }
-
-  .handsontable {
-    background: white !important;
-  }
-
-  .handsontable td,
-  .handsontable th {
-    color: black !important;
-    background: white !important;
-    border-color: #ccc !important;
+  
+  .header-center {
+    display: none;
   }
 }

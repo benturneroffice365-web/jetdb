@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { HotTable } from '@handsontable/react';
 import toast from 'react-hot-toast';
+import 'handsontable/dist/handsontable.full.min.css';
 
 interface Tab {
   id: string;
@@ -29,14 +30,35 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
   const [aiQuery, setAiQuery] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ✅ TASK 1 FIX: Added comprehensive logging
   const executeSQL = async () => {
+    console.log('🔵 SQL Execute clicked!', { 
+      sqlQuery: sqlQuery.substring(0, 50) + '...', 
+      loading,
+      datasetId
+    });
+    
+    if (!sqlQuery || loading) {
+      console.warn('⚠️ SQL blocked:', { hasQuery: !!sqlQuery, isLoading: loading });
+      toast.error(loading ? 'Please wait...' : 'Enter a SQL query first');
+      return;
+    }
+    
     setLoading(true);
+    
     try {
+      console.log('📤 Sending SQL request...');
+      
       const { data } = await axios.post(
         `${apiBase}/query/sql`,
         { sql: sqlQuery, dataset_id: datasetId },
         { headers: authHeaders }
       );
+
+      console.log('✅ SQL succeeded:', {
+        rowsReturned: data.rows_returned,
+        executionTime: data.execution_time_seconds
+      });
 
       const newTab: Tab = {
         id: `sql-${Date.now()}`,
@@ -50,7 +72,9 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
       toast.success(`✅ ${data.rows_returned} rows in ${data.execution_time_seconds}s`);
+      
     } catch (error: any) {
+      console.error('❌ SQL failed:', error.response?.data);
       toast.error(error.response?.data?.detail || 'Query failed');
     } finally {
       setLoading(false);
@@ -58,13 +82,33 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
   };
 
   const executeAI = async () => {
+    console.log('🔵 AI Execute clicked!', { 
+      aiQuery: aiQuery.substring(0, 50) + '...', 
+      loading,
+      datasetId
+    });
+    
+    if (!aiQuery || loading) {
+      console.warn('⚠️ AI blocked:', { hasQuery: !!aiQuery, isLoading: loading });
+      toast.error(loading ? 'Please wait...' : 'Enter a question first');
+      return;
+    }
+    
     setLoading(true);
+    
     try {
+      console.log('📤 Sending AI request...');
+      
       const { data } = await axios.post(
         `${apiBase}/query/natural`,
         { question: aiQuery, dataset_id: datasetId },
         { headers: authHeaders }
       );
+
+      console.log('✅ AI succeeded:', {
+        generatedSQL: data.sql_query,
+        rowsReturned: data.rows_returned
+      });
 
       const newTab: Tab = {
         id: `ai-${Date.now()}`,
@@ -77,8 +121,10 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
 
       setTabs([...tabs, newTab]);
       setActiveTabId(newTab.id);
-      toast.success(`✅ Generated SQL: ${data.sql_query}`);
+      toast.success(`✅ SQL: ${data.sql_query.substring(0, 40)}...`);
+      
     } catch (error: any) {
+      console.error('❌ AI failed:', error.response?.data);
       toast.error(error.response?.data?.detail || 'AI query failed');
     } finally {
       setLoading(false);
@@ -115,8 +161,7 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               background: '#24243a', 
               color: '#fff',
               fontSize: '14px',
-              outline: 'none',
-              transition: 'border-color 0.2s'
+              outline: 'none'
             }}
             disabled={loading}
             onFocus={(e) => e.target.style.borderColor = '#6366f1'}
@@ -134,25 +179,10 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               fontWeight: 600,
               fontSize: '14px',
               cursor: (loading || !aiQuery) ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.2s',
-              minWidth: '120px',
-              justifyContent: 'center'
-            }}
-            onMouseOver={(e) => {
-              if (!loading && aiQuery) {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(99, 102, 241, 0.4)';
-              }
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
+              minWidth: '120px'
             }}
           >
-            <span style={{ fontSize: '16px' }}>🤖</span>
+            <span style={{ marginRight: '8px' }}>🤖</span>
             {loading ? 'Running...' : 'JetAI'}
           </button>
         </div>
@@ -174,8 +204,7 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               color: '#fff', 
               fontFamily: "'Consolas', 'Monaco', 'Courier New', monospace",
               fontSize: '13px',
-              outline: 'none',
-              transition: 'border-color 0.2s'
+              outline: 'none'
             }}
             disabled={loading}
             onFocus={(e) => e.target.style.borderColor = '#10b981'}
@@ -193,25 +222,10 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
               fontWeight: 600,
               fontSize: '14px',
               cursor: (loading || !sqlQuery) ? 'not-allowed' : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              transition: 'all 0.2s',
-              minWidth: '150px',
-              justifyContent: 'center'
-            }}
-            onMouseOver={(e) => {
-              if (!loading && sqlQuery) {
-                e.currentTarget.style.transform = 'translateY(-2px)';
-                e.currentTarget.style.boxShadow = '0 8px 20px rgba(16, 185, 129, 0.4)';
-              }
-            }}
-            onMouseOut={(e) => {
-              e.currentTarget.style.transform = 'translateY(0)';
-              e.currentTarget.style.boxShadow = 'none';
+              minWidth: '150px'
             }}
           >
-            <span style={{ fontSize: '16px' }}>▶️</span>
+            <span style={{ marginRight: '8px' }}>▶️</span>
             {loading ? 'Executing...' : 'Execute SQL'}
           </button>
         </div>
@@ -226,9 +240,7 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
             padding: '8px 16px', 
             background: '#24243a', 
             borderBottom: '1px solid #2d2d44', 
-            overflowX: 'auto',
-            scrollbarWidth: 'thin',
-            scrollbarColor: '#3d3d54 #24243a'
+            overflowX: 'auto'
           }}>
             {tabs.map(tab => (
               <div
@@ -245,19 +257,8 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
                   gap: '8px',
                   fontSize: '13px',
                   whiteSpace: 'nowrap',
-                  transition: 'all 0.2s',
                   border: activeTabId === tab.id ? '1px solid #6366f1' : '1px solid #2d2d44',
                   borderBottom: 'none'
-                }}
-                onMouseOver={(e) => {
-                  if (activeTabId !== tab.id) {
-                    e.currentTarget.style.background = '#2d2d44';
-                  }
-                }}
-                onMouseOut={(e) => {
-                  if (activeTabId !== tab.id) {
-                    e.currentTarget.style.background = '#1a1a24';
-                  }
                 }}
               >
                 <span>{tab.type === 'sql' ? '💻' : '🤖'}</span>
@@ -276,12 +277,8 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
                     cursor: 'pointer', 
                     fontSize: '18px',
                     padding: '0 4px',
-                    marginLeft: '4px',
-                    opacity: 0.7,
-                    transition: 'opacity 0.2s'
+                    opacity: 0.7
                   }}
-                  onMouseOver={(e) => e.currentTarget.style.opacity = '1'}
-                  onMouseOut={(e) => e.currentTarget.style.opacity = '0.7'}
                 >
                   ×
                 </button>
@@ -328,7 +325,8 @@ export const QueryWorkspace: React.FC<QueryWorkspaceProps> = ({
             Start querying your data
           </h3>
           <p style={{ fontSize: '14px', textAlign: 'center', maxWidth: '400px' }}>
-            Use <strong style={{ color: '#6366f1' }}>JetAI</strong> for natural language queries or <strong style={{ color: '#10b981' }}>Execute SQL</strong> for custom queries
+            Use <strong style={{ color: '#6366f1' }}>JetAI</strong> for natural language queries or{' '}
+            <strong style={{ color: '#10b981' }}>Execute SQL</strong> for custom queries
           </p>
         </div>
       )}

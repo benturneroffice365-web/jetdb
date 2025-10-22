@@ -1,4 +1,9 @@
-import React, { useState } from 'react';
+// ============================================================================
+// MergeModal.tsx - Complete Implementation with Enhanced Error Messaging
+// JetDB v8.0 - Task 5: Improved Schema Mismatch UI
+// ============================================================================
+
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
@@ -6,418 +11,349 @@ interface Dataset {
   id: string;
   filename: string;
   row_count: number;
+  column_count: number;
   columns: string[];
+  status: string;
 }
 
 interface MergeModalProps {
   datasets: Dataset[];
-  selectedIds: string[];
-  onClose: () => void;
-  onComplete: () => void;
   apiBase: string;
   authHeaders: Record<string, string>;
+  onClose: () => void;
+  onComplete: (mergedDataset: Dataset) => void;
+}
+
+interface MismatchDetails {
+  missing: string[];
+  extra: string[];
 }
 
 export const MergeModal: React.FC<MergeModalProps> = ({
   datasets,
-  selectedIds,
-  onClose,
-  onComplete,
   apiBase,
-  authHeaders
+  authHeaders,
+  onClose,
+  onComplete
 }) => {
-  const [mergeName, setMergeName] = useState('Merged Dataset');
+  const [mergeName, setMergeName] = useState('');
   const [merging, setMerging] = useState(false);
-  const [selectedForMerge, setSelectedForMerge] = useState<Set<string>>(new Set(selectedIds));
+  const [progress, setProgress] = useState(0);
+  const [schemaMismatch, setSchemaMismatch] = useState(false);
+  const [mismatchDetails, setMismatchDetails] = useState<MismatchDetails>({ missing: [], extra: [] });
 
-  const toggleDataset = (id: string) => {
-    const newSelected = new Set(selectedForMerge);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
+  // ✅ Set default merge name
+  useEffect(() => {
+    if (datasets.length > 0) {
+      const date = new Date().toISOString().split('T')[0];
+      setMergeName(`Merged_${date}_${datasets.length}datasets`);
     }
-    setSelectedForMerge(newSelected);
-  };
+  }, [datasets]);
 
-  const selected = datasets.filter(d => selectedForMerge.has(d.id));
+  // ✅ TASK 5: Check for schema mismatches
+  useEffect(() => {
+    if (datasets.length < 2) return;
 
-  // Check schema match
-  let schemaMismatch = false;
-  let mismatchDetails = { missing: [] as string[], extra: [] as string[] };
+    const firstColumns = [...datasets[0].columns].sort();
+    let hasMismatch = false;
+    const missing: string[] = [];
+    const extra: string[] = [];
 
-  if (selected.length >= 2) {
-    const firstCols = new Set(selected[0].columns.map(c => c.toLowerCase().trim()));
-    
-    for (let i = 1; i < selected.length; i++) {
-      const currentCols = new Set(selected[i].columns.map(c => c.toLowerCase().trim()));
+    for (let i = 1; i < datasets.length; i++) {
+      const currentColumns = [...datasets[i].columns].sort();
       
-      // Check if all columns match
-      if (firstCols.size !== currentCols.size || 
-          ![...firstCols].every(col => currentCols.has(col))) {
-        schemaMismatch = true;
+      if (JSON.stringify(firstColumns) !== JSON.stringify(currentColumns)) {
+        hasMismatch = true;
         
-        // Find missing columns (in first but not in current)
-        mismatchDetails.missing = [...firstCols].filter(col => !currentCols.has(col));
+        // Find missing columns (in first dataset but not in current)
+        const missingInCurrent = firstColumns.filter(col => !currentColumns.includes(col));
+        missing.push(...missingInCurrent);
         
-        // Find extra columns (in current but not in first)
-        mismatchDetails.extra = [...currentCols].filter(col => !firstCols.has(col));
-        
-        break;
+        // Find extra columns (in current dataset but not in first)
+        const extraInCurrent = currentColumns.filter(col => !firstColumns.includes(col));
+        extra.push(...extraInCurrent);
       }
     }
-  }
 
+    setSchemaMismatch(hasMismatch);
+    setMismatchDetails({
+      missing: [...new Set(missing)], // Remove duplicates
+      extra: [...new Set(extra)]
+    });
+  }, [datasets]);
+
+  // ✅ Handle merge
   const handleMerge = async () => {
-    if (selected.length < 2) {
-      toast.error('❌ Select at least 2 datasets to merge');
+    if (schemaMismatch) {
+      toast.error('Cannot merge: Columns don\'t match');
       return;
     }
 
-    if (schemaMismatch) {
-      toast.error('❌ Cannot merge datasets with different columns');
+    if (!mergeName.trim()) {
+      toast.error('Please enter a name for the merged dataset');
       return;
     }
 
     setMerging(true);
+    setProgress(0);
+
     try {
-      const { data } = await axios.post(
+      console.log('🔄 Starting merge...', {
+        datasetIds: datasets.map(d => d.id),
+        name: mergeName
+      });
+
+      // Simulate progress updates (since backend is streaming)
+      const progressInterval = setInterval(() => {
+        setProgress(prev => {
+          if (prev >= 90) return prev;
+          return prev + Math.random() * 15;
+        });
+      }, 500);
+
+      const response = await axios.post(
         `${apiBase}/datasets/merge`,
-        { 
-          dataset_ids: Array.from(selectedForMerge), 
-          merged_name: mergeName 
+        {
+          dataset_ids: datasets.map(d => d.id),
+          name: mergeName.trim()
         },
         { headers: authHeaders }
       );
 
-      toast.success(
-        `✅ Merged ${data.row_count.toLocaleString()} rows in ${data.merge_time_seconds}s!`,
-        { duration: 5000 }
-      );
-      onComplete();
+      clearInterval(progressInterval);
+      setProgress(100);
+
+      console.log('✅ Merge complete:', response.data);
+
+      toast.success(`✅ Merged ${response.data.row_count.toLocaleString()} rows!`);
+      
+      setTimeout(() => {
+        onComplete(response.data);
+      }, 500);
+
     } catch (error: any) {
-      const errorDetail = error.response?.data?.detail;
-      if (typeof errorDetail === 'object' && errorDetail.error) {
-        toast.error(`❌ ${errorDetail.error}`);
-      } else {
-        toast.error(errorDetail || 'Merge failed');
-      }
-    } finally {
+      console.error('❌ Merge failed:', error);
+      toast.error(error.response?.data?.detail || 'Merge failed');
       setMerging(false);
+      setProgress(0);
     }
   };
 
+  // ✅ Calculate total rows
+  const totalRows = datasets.reduce((sum, d) => sum + d.row_count, 0);
+
   return (
-    <div 
-      style={{ 
-        position: 'fixed', 
-        inset: 0, 
-        background: 'rgba(0,0,0,0.8)', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        zIndex: 1000,
-        padding: '20px'
-      }} 
-      onClick={onClose}
-    >
-      <div 
-        style={{ 
-          background: '#1a1a24', 
-          borderRadius: '16px', 
-          width: '90%', 
-          maxWidth: '700px', 
-          maxHeight: '90vh', 
-          overflow: 'auto',
-          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.6)'
-        }} 
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div style={{ 
-          padding: '24px', 
-          borderBottom: '1px solid #2d2d44',
-          background: '#24243a'
-        }}>
-          <h2 style={{ margin: 0, color: '#fff', fontSize: '20px', fontWeight: 700 }}>
-            🔄 Merge Datasets
-          </h2>
-          <p style={{ margin: '8px 0 0 0', color: '#a1a1aa', fontSize: '14px' }}>
-            Select datasets to merge with identical columns
-          </p>
+        <div className="modal-header">
+          <h2>🔄 Merge Datasets</h2>
+          <button onClick={onClose} className="btn-close" disabled={merging}>
+            ×
+          </button>
         </div>
 
-        {/* Schema Mismatch Warning */}
-        {schemaMismatch && selected.length >= 2 && (
-          <div style={{ 
-            margin: '20px 24px 0 24px', 
-            padding: '16px', 
-            background: 'rgba(239, 68, 68, 0.1)', 
-            border: '2px solid #ef4444', 
-            borderRadius: '12px'
-          }}>
+        {/* Body */}
+        <div className="modal-body">
+          {/* ✅ TASK 5: Improved schema mismatch error */}
+          {schemaMismatch && (
             <div style={{ 
-              display: 'flex', 
-              alignItems: 'center', 
-              gap: '12px',
-              marginBottom: '12px'
+              margin: '0 0 24px 0',
+              padding: '24px', 
+              background: 'rgba(239, 68, 68, 0.1)', 
+              border: '3px solid #ef4444', 
+              borderRadius: '16px'
             }}>
-              <span style={{ fontSize: '24px' }}>⚠️</span>
-              <div>
-                <h4 style={{ 
-                  margin: 0, 
-                  color: '#fca5a5', 
-                  fontSize: '16px',
-                  fontWeight: 600 
+              <div style={{ 
+                fontSize: '48px', 
+                textAlign: 'center', 
+                marginBottom: '16px' 
+              }}>
+                ⚠️
+              </div>
+              
+              <h3 style={{ 
+                color: '#ef4444', 
+                fontSize: '24px', 
+                textAlign: 'center',
+                marginBottom: '12px',
+                fontWeight: 700,
+                margin: '0 0 12px 0'
+              }}>
+                Columns Don't Match
+              </h3>
+              
+              <p style={{ 
+                color: '#fca5a5', 
+                textAlign: 'center',
+                fontSize: '16px',
+                marginBottom: '20px',
+                lineHeight: 1.5
+              }}>
+                You can only merge datasets with identical columns.
+              </p>
+              
+              {/* Show specific mismatches */}
+              {(mismatchDetails.missing.length > 0 || mismatchDetails.extra.length > 0) && (
+                <div style={{ 
+                  background: 'rgba(0, 0, 0, 0.3)',
+                  padding: '16px',
+                  borderRadius: '12px',
+                  border: '1px solid rgba(239, 68, 68, 0.3)'
                 }}>
-                  Columns Don't Match
-                </h4>
-                <p style={{ 
-                  margin: '4px 0 0 0', 
-                  color: '#fca5a5', 
-                  fontSize: '13px' 
-                }}>
-                  You can only merge datasets with identical columns
-                </p>
+                  {mismatchDetails.missing.length > 0 && (
+                    <div style={{ marginBottom: mismatchDetails.extra.length > 0 ? '16px' : 0 }}>
+                      <div style={{ 
+                        color: '#fca5a5', 
+                        fontWeight: 700, 
+                        fontSize: '14px',
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        <span style={{ fontSize: '16px' }}>❌</span>
+                        Missing Columns:
+                      </div>
+                      <div style={{ color: '#e4e4e7', fontSize: '13px', paddingLeft: '24px' }}>
+                        {mismatchDetails.missing.map(col => (
+                          <div key={col} style={{ padding: '4px 0', fontFamily: 'monospace' }}>
+                            • {col}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {mismatchDetails.extra.length > 0 && (
+                    <div>
+                      <div style={{ 
+                        color: '#fca5a5', 
+                        fontWeight: 700, 
+                        fontSize: '14px',
+                        marginBottom: '8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px'
+                      }}>
+                        <span style={{ fontSize: '16px' }}>➕</span>
+                        Extra Columns:
+                      </div>
+                      <div style={{ color: '#e4e4e7', fontSize: '13px', paddingLeft: '24px' }}>
+                        {mismatchDetails.extra.map(col => (
+                          <div key={col} style={{ padding: '4px 0', fontFamily: 'monospace' }}>
+                            • {col}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              <div style={{ 
+                marginTop: '20px', 
+                textAlign: 'center',
+                fontSize: '13px',
+                color: '#fca5a5'
+              }}>
+                💡 Tip: Make sure all datasets have the same column names
               </div>
             </div>
-            
-            {(mismatchDetails.missing.length > 0 || mismatchDetails.extra.length > 0) && (
-              <div style={{ 
-                marginTop: '12px', 
-                padding: '12px', 
-                background: 'rgba(0, 0, 0, 0.2)',
-                borderRadius: '8px',
-                fontSize: '12px'
-              }}>
-                {mismatchDetails.missing.length > 0 && (
-                  <div style={{ marginBottom: '8px' }}>
-                    <strong style={{ color: '#fca5a5' }}>Missing:</strong>{' '}
-                    <span style={{ color: '#e4e4e7' }}>
-                      {mismatchDetails.missing.join(', ')}
-                    </span>
-                  </div>
-                )}
-                {mismatchDetails.extra.length > 0 && (
-                  <div>
-                    <strong style={{ color: '#fca5a5' }}>Extra:</strong>{' '}
-                    <span style={{ color: '#e4e4e7' }}>
-                      {mismatchDetails.extra.join(', ')}
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
-        {/* Content */}
-        <div style={{ padding: '24px' }}>
-          {/* Merged Name Input */}
-          <div style={{ marginBottom: '20px' }}>
-            <label style={{ 
-              display: 'block', 
-              marginBottom: '8px', 
-              color: '#e4e4e7', 
-              fontSize: '14px',
-              fontWeight: 600 
-            }}>
-              Merged Dataset Name
-            </label>
+          {/* Merge name input */}
+          <div className="form-group">
+            <label className="form-label">Merged Dataset Name</label>
             <input
               type="text"
               value={mergeName}
               onChange={(e) => setMergeName(e.target.value)}
-              placeholder="Enter name for merged dataset"
-              style={{ 
-                width: '100%', 
-                padding: '12px 16px', 
-                borderRadius: '8px', 
-                border: '1px solid #2d2d44', 
-                background: '#24243a', 
-                color: '#fff',
-                fontSize: '14px',
-                outline: 'none',
-                transition: 'border-color 0.2s'
-              }}
-              onFocus={(e) => e.target.style.borderColor = '#6366f1'}
-              onBlur={(e) => e.target.style.borderColor = '#2d2d44'}
+              placeholder="e.g., Merged_2025_Sales_Data"
+              className="form-input"
+              disabled={merging}
             />
           </div>
 
-          {/* Dataset Selection */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ 
-              display: 'block', 
-              marginBottom: '12px', 
-              color: '#e4e4e7', 
-              fontSize: '14px',
-              fontWeight: 600 
-            }}>
-              Select Datasets to Merge ({selectedForMerge.size} selected)
+          {/* Selected datasets list */}
+          <div className="form-group">
+            <label className="form-label">
+              Selected Datasets ({datasets.length})
             </label>
-            
-            <div style={{ 
-              maxHeight: '300px', 
-              overflowY: 'auto',
-              background: '#24243a',
-              borderRadius: '8px',
-              padding: '8px'
-            }}>
-              {datasets.map(d => (
-                <label
-                  key={d.id}
-                  style={{ 
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '12px',
-                    background: selectedForMerge.has(d.id) ? 'rgba(99, 102, 241, 0.2)' : 'transparent',
-                    borderRadius: '6px',
-                    marginBottom: '8px',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s',
-                    border: `1px solid ${selectedForMerge.has(d.id) ? '#6366f1' : 'transparent'}`
-                  }}
-                  onMouseOver={(e) => {
-                    if (!selectedForMerge.has(d.id)) {
-                      e.currentTarget.style.background = 'rgba(61, 61, 84, 0.5)';
-                    }
-                  }}
-                  onMouseOut={(e) => {
-                    if (!selectedForMerge.has(d.id)) {
-                      e.currentTarget.style.background = 'transparent';
-                    }
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedForMerge.has(d.id)}
-                    onChange={() => toggleDataset(d.id)}
-                    style={{ 
-                      marginRight: '12px',
-                      width: '18px',
-                      height: '18px',
-                      cursor: 'pointer',
-                      accentColor: '#6366f1'
-                    }}
-                  />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ 
-                      fontSize: '14px', 
-                      color: '#e4e4e7',
-                      fontWeight: 500,
-                      marginBottom: '4px'
-                    }}>
-                      {d.filename}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#a1a1aa' }}>
-                      {d.row_count.toLocaleString()} rows • {d.columns.length} columns
-                    </div>
+            <div className="dataset-list-merge">
+              {datasets.map(dataset => (
+                <div key={dataset.id} className="dataset-card">
+                  <div className="dataset-card-header">
+                    <span className="dataset-icon">📄</span>
+                    <span className="dataset-filename">{dataset.filename}</span>
                   </div>
-                </label>
+                  <div className="dataset-card-stats">
+                    {dataset.row_count.toLocaleString()} rows • {dataset.column_count} columns
+                  </div>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* Summary */}
-          {selected.length >= 2 && (
-            <div style={{ 
-              padding: '16px', 
-              background: schemaMismatch ? 'rgba(239, 68, 68, 0.05)' : 'rgba(16, 185, 129, 0.1)',
-              border: `1px solid ${schemaMismatch ? 'rgba(239, 68, 68, 0.3)' : 'rgba(16, 185, 129, 0.3)'}`,
-              borderRadius: '8px',
-              marginTop: '16px'
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: '8px'
-              }}>
-                <span style={{ color: '#a1a1aa', fontSize: '13px' }}>Total Rows:</span>
-                <span style={{ 
-                  color: schemaMismatch ? '#fca5a5' : '#6ee7b7', 
-                  fontWeight: 700,
-                  fontSize: '16px'
-                }}>
-                  {selected.reduce((sum, d) => sum + d.row_count, 0).toLocaleString()}
-                </span>
+          {/* Total summary */}
+          <div className="merge-summary">
+            <div className="summary-row">
+              <span className="summary-label">Total Rows:</span>
+              <span className="summary-value">{totalRows.toLocaleString()}</span>
+            </div>
+            <div className="summary-row">
+              <span className="summary-label">Total Datasets:</span>
+              <span className="summary-value">{datasets.length}</span>
+            </div>
+            {!schemaMismatch && (
+              <div className="summary-row success">
+                <span className="summary-label">Schema Check:</span>
+                <span className="summary-value">✅ All columns match</span>
               </div>
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between',
-                alignItems: 'center'
-              }}>
-                <span style={{ color: '#a1a1aa', fontSize: '13px' }}>Datasets:</span>
-                <span style={{ 
-                  color: schemaMismatch ? '#fca5a5' : '#6ee7b7', 
-                  fontWeight: 600,
-                  fontSize: '14px'
-                }}>
-                  {selected.length} selected
-                </span>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          {merging && (
+            <div className="progress-container">
+              <div className="progress-bar">
+                <div 
+                  className="progress-fill" 
+                  style={{ width: `${progress}%` }}
+                />
+              </div>
+              <div className="progress-text">
+                {progress < 100 ? (
+                  <>Merging {totalRows.toLocaleString()} rows... {Math.round(progress)}%</>
+                ) : (
+                  <>✅ Merge complete!</>
+                )}
               </div>
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div style={{ 
-          padding: '20px 24px', 
-          borderTop: '1px solid #2d2d44', 
-          display: 'flex', 
-          gap: '12px', 
-          justifyContent: 'flex-end',
-          background: '#24243a'
-        }}>
+        <div className="modal-footer">
           <button 
             onClick={onClose} 
-            disabled={merging} 
-            style={{ 
-              padding: '12px 24px',
-              background: '#3d3d54',
-              color: '#fff', 
-              border: 'none', 
-              borderRadius: '8px', 
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: merging ? 'not-allowed' : 'pointer',
-              opacity: merging ? 0.5 : 1
-            }}
+            className="btn-secondary"
+            disabled={merging}
           >
             Cancel
           </button>
           <button 
-            onClick={handleMerge} 
-            disabled={merging || schemaMismatch || !mergeName || selected.length < 2} 
-            style={{ 
-              padding: '12px 24px',
-              background: (merging || schemaMismatch || !mergeName || selected.length < 2) 
-                ? '#3d3d54' 
-                : 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
-              color: '#fff', 
-              border: 'none', 
-              borderRadius: '8px', 
-              fontWeight: 600,
-              fontSize: '14px',
-              cursor: (merging || schemaMismatch || !mergeName || selected.length < 2) 
-                ? 'not-allowed' 
-                : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px'
-            }}
+            onClick={handleMerge}
+            className="btn-primary"
+            disabled={merging || schemaMismatch || !mergeName.trim() || datasets.length < 2}
           >
             {merging ? (
               <>
-                <div className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }}></div>
+                <div className="spinner small" style={{ marginRight: '8px' }} />
                 Merging...
               </>
             ) : (
-              <>
-                <span>🔄</span>
-                Merge Datasets
-              </>
+              <>🔄 Merge Datasets</>
             )}
           </button>
         </div>
